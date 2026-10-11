@@ -305,11 +305,12 @@ def extract_best_quote(
         cand_words = set(re.findall(r"\w+", cand_lower))
         overlap = len(sc_words.intersection(cand_words))
 
-        # Evaluative keyword bonus
+        # Evaluative keyword bonus: heavily prioritize actual debunking/verdict sentences over mere repetitions of the rumor
         eval_matches = sum(1 for kw in EVALUATIVE_KEYWORDS if kw in cand_lower)
 
-        # Composite score
-        score = overlap + (eval_matches * 3.5)
+        # Composite score: evaluative keywords outweigh mere lexical overlap with the viral rumor
+        score = overlap + (eval_matches * 10.0)
+
 
         if score > best_score:
             best_score = score
