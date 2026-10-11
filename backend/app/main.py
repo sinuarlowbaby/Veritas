@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, status
@@ -70,12 +70,18 @@ from app.models.schemas import (
     NLIResponse,
     JudgeVerdictRequest,
     JudgeVerdictResponse,
+    VerifyClaimRequest,
+    VerificationJobResponse,
+    FeedbackCreateRequest,
+    FeedbackItem,
+    FeedbackListResponse,
 )
 from app.agents.decomposer import decompose_claim
 from app.agents.judge import judge_evaluate_claim
 from app.tools.web_search import search_web, WebSearchError
 from app.tools.rag_retriever import retrieve_curated_evidence
 from app.services.nli_verifier import get_nli_verifier
+from app.services.feedback_store import get_feedback_store
 
 @app.get("/health", tags=["System"])
 async def health_check() -> Dict[str, str]:
@@ -452,6 +458,70 @@ async def verify_claim_sync(payload: VerifyClaimRequest) -> JudgeVerdictResponse
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error executing verification pipeline: {str(exc)}",
+        )
+
+
+@app.post(
+    "/api/feedback",
+    response_model=FeedbackItem,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Feedback"],
+    summary="Submit user feedback on verification verdict",
+    description="Submits thumbs-up or thumbs-down feedback and optional comment for a verification job, persisted to the feedback database.",
+)
+@app.post(
+    "/feedback",
+    response_model=FeedbackItem,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
+async def submit_feedback(payload: FeedbackCreateRequest) -> FeedbackItem:
+    feedback_store = get_feedback_store()
+    try:
+        record = feedback_store.add_feedback(
+            job_id=payload.job_id,
+            rating=payload.rating,
+            verdict=payload.verdict or "",
+            comment=payload.comment or "",
+        )
+        logger.info(f"Feedback recorded for job {payload.job_id}: {payload.rating} - {payload.comment[:40]}")
+        return FeedbackItem(**record)
+    except Exception as exc:
+        logger.exception(f"Failed to record feedback: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error storing feedback: {str(exc)}",
+        )
+
+
+@app.get(
+    "/api/feedback",
+    response_model=FeedbackListResponse,
+    tags=["Feedback"],
+    summary="List feedback submissions (admin review)",
+    description="Lists feedback records with optional filter by rating (e.g. 'thumbs_down' to review flagged errors).",
+)
+@app.get(
+    "/feedback",
+    response_model=FeedbackListResponse,
+    include_in_schema=False,
+)
+async def list_feedback_endpoint(
+    rating: Optional[str] = Query(None, description="Filter by rating: 'thumbs_up' or 'thumbs_down'"),
+    limit: int = Query(100, ge=1, le=500, description="Max feedback rows to return"),
+) -> FeedbackListResponse:
+    feedback_store = get_feedback_store()
+    try:
+        items = feedback_store.list_feedback(rating=rating, limit=limit)
+        return FeedbackListResponse(
+            total=len(items),
+            items=[FeedbackItem(**item) for item in items],
+        )
+    except Exception as exc:
+        logger.exception(f"Failed to retrieve feedback list: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error reading feedback: {str(exc)}",
         )
 
 

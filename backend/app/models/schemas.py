@@ -444,4 +444,34 @@ class VerificationJobResponse(BaseModel):
     )
 
 
+class FeedbackCreateRequest(BaseModel):
+    job_id: str = Field(
+        ...,
+        description="The verification job ID being evaluated.",
+    )
+    rating: str = Field(
+        ...,
+        description="'thumbs_up' or 'thumbs_down' (also accepts 'up'/'down').",
+    )
+    verdict: Optional[str] = Field(
+        default="",
+        description="The overall verdict received by the user (e.g. TRUE, FALSE, PARTIALLY TRUE, UNVERIFIED).",
+    )
+    comment: Optional[str] = Field(
+        default="",
+        description="Optional human rationale or comment on why the verdict is flagged or verified.",
+    )
 
+
+class FeedbackItem(BaseModel):
+    id: str = Field(..., description="Unique feedback ID.")
+    job_id: str = Field(..., description="Referenced verification job ID.")
+    rating: str = Field(..., description="Rating ('thumbs_up' or 'thumbs_down').")
+    verdict: str = Field(..., description="Verdict associated with this job.")
+    comment: str = Field(..., description="User comment or review notes.")
+    created_at: str = Field(..., description="Timestamp in ISO 8601 format.")
+
+
+class FeedbackListResponse(BaseModel):
+    total: int = Field(..., description="Total feedback records returned.")
+    items: List[FeedbackItem] = Field(default_factory=list, description="List of feedback items.")
