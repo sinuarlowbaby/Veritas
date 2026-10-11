@@ -330,3 +330,47 @@ class JudgeVerdictResponse(BaseModel):
     explanation: str = Field(default="", description="Narrative 3-5 sentence audit explanation citing quotes.")
     key_citations: List[str] = Field(default_factory=list, description="Key source URLs cited in justification.")
 
+
+class VerifyClaimRequest(BaseModel):
+    text: str = Field(
+        ...,
+        min_length=3,
+        description="Raw headline, article excerpt, or composite claim to verify.",
+    )
+    generate_explanation: bool = Field(
+        default=True,
+        description="Whether to invoke the LLM narrator to generate a 3-5 sentence audit explanation.",
+    )
+
+
+class VerificationJobResponse(BaseModel):
+    job_id: str = Field(
+        ...,
+        description="Unique verification job identifier.",
+    )
+    status: str = Field(
+        ...,
+        description="Current status of the job: 'queued', 'processing', 'completed', or 'failed'.",
+    )
+    stage: Optional[str] = Field(
+        default=None,
+        description="Detailed execution stage: 'decomposing', 'harvesting_evidence', 'sanitizing', 'nli_verification', 'judge_evaluating', 'completed'.",
+    )
+    created_at: str = Field(
+        ...,
+        description="Job submission timestamp (ISO 8601).",
+    )
+    completed_at: Optional[str] = Field(
+        default=None,
+        description="Job completion timestamp (ISO 8601).",
+    )
+    result: Optional[JudgeVerdictResponse] = Field(
+        default=None,
+        description="Final verification verdict response if completed.",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Error details if the job failed.",
+    )
+
+
