@@ -1,0 +1,102 @@
+:root {
+  --bg-primary: #0a0e17;
+  --bg-secondary: #0f172a;
+  --bg-card: #182234;
+  --bg-card-hover: #1e2c44;
+  --border-dim: #1f2e46;
+  --border-bright: #334a6e;
+  
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+
+  --accent-blue: #38bdf8;
+  --accent-cyan: #06b6d4;
+  --accent-purple: #a855f7;
+
+  /* Verdict & NLI Palette */
+  --true-green: #10b981;
+  --true-green-glow: rgba(16, 185, 129, 0.2);
+  --true-green-border: #059669;
+
+  --false-red: #ef4444;
+  --false-red-glow: rgba(239, 68, 68, 0.2);
+  --false-red-border: #dc2626;
+
+  --amber-mixed: #f59e0b;
+  --amber-mixed-glow: rgba(245, 158, 11, 0.2);
+
+  --unverified-slate: #64748b;
+  --unverified-glow: rgba(100, 116, 139, 0.2);
+
+  /* Source Tiers */
+  --tier1-gold: #eab308;
+  --tier2-cyan: #38bdf8;
+  --tier3-purple: #c084fc;
+  --tier4-gray: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, pre, .mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-dim);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-bright);
+}
+
+/* Buttons & Inputs */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+input, textarea {
+  font-family: inherit;
+  outline: none;
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background: rgba(17, 24, 39, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-dim);
+  border-radius: 12px;
+}
+
+.glass-panel-glow {
+  background: rgba(24, 34, 52, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-bright);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+  border-radius: 14px;
+}
