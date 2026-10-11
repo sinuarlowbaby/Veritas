@@ -4,7 +4,17 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.services.job_store import get_job_store
 from app.models.schemas import EvidenceItem, JudgeVerdictResponse, SubClaimVerdict
+
+
+
+@pytest.fixture(autouse=True)
+def clean_job_store():
+    store = get_job_store()
+    store.clear()
+    yield
+    store.clear()
 
 
 @pytest.fixture
