@@ -271,7 +271,123 @@ async def judge_endpoint(payload: JudgeVerdictRequest) -> JudgeVerdictResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# End-to-End Verification Pipeline & Async Job System
+# ---------------------------------------------------------------------------
+import uuid
+from datetime import datetime, timezone
+from app.models.schemas import VerifyClaimRequest, VerificationJobResponse
+from app.agents.graph import run_verification_pipeline
+
+# In-memory job repository for asynchronous verification tasks
+verification_jobs: Dict[str, VerificationJobResponse] = {}
+
+
+async def _execute_verification_job(job_id: str, claim_text: str, generate_explanation: bool) -> None:
+    """Background worker executing the complete Veritas multi-agent verification pipeline."""
+    try:
+        def _on_stage(stage_name: str) -> None:
+            if job_id in verification_jobs:
+                verification_jobs[job_id].stage = stage_name
+
+        if job_id in verification_jobs:
+            verification_jobs[job_id].status = "processing"
+            verification_jobs[job_id].stage = "decomposing"
+
+        result = await run_verification_pipeline(
+            raw_claim=claim_text,
+            status_callback=_on_stage,
+            generate_explanation=generate_explanation,
+        )
+
+        if job_id in verification_jobs:
+            verification_jobs[job_id].status = "completed"
+            verification_jobs[job_id].stage = "completed"
+            verification_jobs[job_id].result = result
+            verification_jobs[job_id].completed_at = datetime.now(timezone.utc).isoformat()
+            logger.info(f"Verification job {job_id} successfully completed with verdict: {result.overall_verdict}")
+
+    except Exception as exc:
+        logger.exception(f"Verification job {job_id} failed: {exc}")
+        if job_id in verification_jobs:
+            verification_jobs[job_id].status = "failed"
+            verification_jobs[job_id].stage = "failed"
+            verification_jobs[job_id].error = str(exc)
+            verification_jobs[job_id].completed_at = datetime.now(timezone.utc).isoformat()
+
+
+@app.post(
+    "/api/verify",
+    response_model=VerificationJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Verification Pipeline"],
+    summary="Enqueue asynchronous claim verification job",
+    description="Submits a headline/claim to the end-to-end multi-agent verification pipeline (Decomposer -> Proponent/Skeptic -> Sanitizer -> NLI Verifier -> Judge). Returns job_id for status polling.",
+)
+async def create_verification_job(payload: VerifyClaimRequest) -> VerificationJobResponse:
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    now_ts = datetime.now(timezone.utc).isoformat()
+
+    job_entry = VerificationJobResponse(
+        job_id=job_id,
+        status="queued",
+        stage="queued",
+        created_at=now_ts,
+    )
+    verification_jobs[job_id] = job_entry
+
+    # Launch background task
+    asyncio.create_task(
+        _execute_verification_job(
+            job_id=job_id,
+            claim_text=payload.text,
+            generate_explanation=payload.generate_explanation,
+        )
+    )
+
+    logger.info(f"Created verification job {job_id} for claim: {payload.text[:60]}...")
+    return job_entry
+
+
+@app.get(
+    "/api/verify/{job_id}",
+    response_model=VerificationJobResponse,
+    tags=["Verification Pipeline"],
+    summary="Poll verification job status and results",
+    description="Polls current status ('queued', 'processing', 'completed', 'failed') and retrieves complete audit response once finished.",
+)
+async def get_verification_job(job_id: str) -> VerificationJobResponse:
+    if job_id not in verification_jobs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Verification job '{job_id}' not found.",
+        )
+    return verification_jobs[job_id]
+
+
+@app.post(
+    "/api/verify/sync",
+    response_model=JudgeVerdictResponse,
+    tags=["Verification Pipeline"],
+    summary="Synchronous end-to-end claim verification",
+    description="Directly executes full pipeline and blocks until final verdict is computed.",
+)
+async def verify_claim_sync(payload: VerifyClaimRequest) -> JudgeVerdictResponse:
+    try:
+        return await run_verification_pipeline(
+            raw_claim=payload.text,
+            generate_explanation=payload.generate_explanation,
+        )
+    except Exception as exc:
+        logger.exception(f"Synchronous verification error: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error executing verification pipeline: {str(exc)}",
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+
