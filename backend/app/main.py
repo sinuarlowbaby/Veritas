@@ -62,6 +62,7 @@ from app.models.schemas import (
 )
 from app.agents.decomposer import decompose_claim
 from app.tools.web_search import search_web, WebSearchError
+from app.tools.rag_retriever import retrieve_curated_evidence
 
 @app.get("/health", tags=["System"])
 async def health_check() -> Dict[str, str]:
@@ -179,6 +180,52 @@ async def batch_search_questions_endpoint(payload: BatchQuestionsRequest) -> Bat
         responses=responses,
     )
 
+
+@app.post(
+    "/api/rag",
+    response_model=SearchResponse,
+    tags=["Curated Fact RAG"],
+    summary="Retrieve curated fact-check evidence for a sub-claim",
+    description="Embeds query and searches the curated fact-check corpus (pgvector / local store) for ground truth.",
+)
+async def rag_retrieve_endpoint(payload: SearchRequest) -> SearchResponse:
+    """
+    Queries the curated fact-check vector store and returns structured evidence chunks with verdicts.
+    """
+    try:
+        resolved_query = payload.resolved_query()
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    try:
+        results = await retrieve_curated_evidence(query=resolved_query, top_k=payload.max_results)
+        provider_used = results[0].source if results else "curated_rag:none"
+        return SearchResponse(
+            question=resolved_query,
+            provider_used=provider_used,
+            total_results=len(results),
+            results=results,
+        )
+    except Exception as exc:
+        logger.exception(f"Unexpected RAG retrieval error: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal error processing RAG retrieval: {str(exc)}",
+        )
+
+
+@app.get(
+    "/api/rag",
+    response_model=SearchResponse,
+    tags=["Curated Fact RAG"],
+    summary="Retrieve curated fact-check evidence (GET)",
+    description="Convenient GET endpoint to test RAG retrieval directly in Swagger UI.",
+)
+async def rag_retrieve_get_endpoint(
+    question: str = Query(..., min_length=2, description="The sub-claim or query"),
+    max_results: int = Query(default=5, ge=1, le=20, description="Max chunks to return"),
+) -> SearchResponse:
+    return await rag_retrieve_endpoint(SearchRequest(question=question, max_results=max_results))
 
 
 if __name__ == "__main__":

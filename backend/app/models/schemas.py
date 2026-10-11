@@ -59,7 +59,19 @@ class SearchResult(BaseModel):
     )
     source: str = Field(
         ...,
-        description="Search provider that returned this result (e.g., 'tinyfish', 'tavily', 'duckduckgo').",
+        description="Search provider or source (e.g., 'tinyfish', 'tavily', 'duckduckgo', 'curated_rag').",
+    )
+    verdict: Optional[str] = Field(
+        default=None,
+        description="Fact-checker verdict if available (e.g., 'FALSE', 'TRUE', 'MISLEADING').",
+    )
+    publish_date: Optional[str] = Field(
+        default=None,
+        description="Publication date of the source article (YYYY-MM-DD).",
+    )
+    similarity: Optional[float] = Field(
+        default=None,
+        description="Cosine similarity score for vector retrieval.",
     )
 
 
