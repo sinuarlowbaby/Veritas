@@ -29,8 +29,8 @@ TEST_CASES = [
         "expected_verdict": "FALSE",
     },
     {
-        "name": "Headline 4: Obscure / Fabricated Claim (Epistemic Abstention)",
-        "headline": "Astronomers discover subterranean crystalline city on Jupiter's moon Ganymede dating back 400,000 years",
+        "name": "Headline 4: Obscure Fictional Claim (Epistemic Abstention)",
+        "headline": "Local resident Rameshwar Patel of village Bilaspur discovered a 17-pound iridescent glowing sapphire inside a wild papaya on October 8, 2026",
         "expected_verdict": "UNVERIFIED",
     },
 ]
