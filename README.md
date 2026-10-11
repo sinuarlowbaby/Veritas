@@ -130,7 +130,142 @@ For each sub-claim, score = Σ(weight_tier × nli_confidence) over supporting it
 | Caching / queue     | Redis + Celery (for async verification jobs)                              |
 | MLOps               | Docker, GitHub Actions CI, eval harness in pytest, Langfuse (LLM tracing) |
 
-# 9. Evaluation Plan
+# 9. Getting Started & Running Instructions
+
+### 9.1 Prerequisites
+
+- **Python**: Version 3.11 or higher
+- **OpenAI API Key**: Required for claim decomposition and LLM agents
+- **Langfuse API Credentials** *(Optional)*: For LLM tracing and observability
+
+---
+
+### 9.2 Environment Configuration
+
+1. Clone or navigate to the repository directory.
+2. Create a `.env` file from `.env.example`:
+
+   **PowerShell (Windows):**
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+   **Bash (Linux / macOS):**
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Open `.env` and configure your API keys:
+   ```env
+   # Required for Claim Decomposer and agents
+   OPENAI_API_KEY=your_openai_api_key_here
+
+   # Optional Langfuse Observability
+   LANGFUSE_PUBLIC_KEY=your_public_key
+   LANGFUSE_SECRET_KEY=your_secret_key
+   LANGFUSE_HOST=https://cloud.langfuse.com
+   ```
+
+---
+
+### 9.3 Environment Setup & Dependency Installation
+
+1. Create a Python virtual environment:
+   ```bash
+   python -m venv .venv
+   ```
+
+2. Activate the virtual environment:
+   - **Windows (PowerShell):**
+     ```powershell
+     .venv\Scripts\Activate.ps1
+     ```
+   - **Windows (Command Prompt):**
+     ```cmd
+     .venv\Scripts\activate.bat
+     ```
+   - **macOS / Linux:**
+     ```bash
+     source .venv/bin/activate
+     ```
+
+3. Install dependencies in editable mode:
+   ```bash
+   pip install -e backend
+   ```
+   *(To also install testing dependencies like pytest, run `pip install -e "backend[dev]"`)*
+
+---
+
+### 9.4 Running the Application
+
+Start the FastAPI application with Uvicorn:
+
+**Option 1: From the `backend` directory (Standard)**
+```bash
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Option 2: From the repository root**
+```bash
+python -m uvicorn app.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
+```
+
+**Option 3: Directly via the main script**
+```bash
+python backend/app/main.py
+```
+
+Once running, the API server will be available at:
+- **Base URL:** `http://localhost:8000`
+- **Health Check:** `http://localhost:8000/health`
+- **Interactive Swagger Docs (OpenAPI):** `http://localhost:8000/docs`
+- **Alternative ReDoc UI:** `http://localhost:8000/redoc`
+
+---
+
+### 9.5 Testing the Endpoints
+
+#### 1. Verify Service Health
+```bash
+curl http://localhost:8000/health
+```
+*Expected response:* `{"status":"ok","service":"veritas-api","version":"0.1.0"}`
+
+#### 2. Test Claim Decomposer Endpoint (`POST /api/decompose`)
+
+**cURL (Linux / macOS / Git Bash):**
+```bash
+curl -X POST "http://localhost:8000/api/decompose" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Finance Ministry eliminates all income tax for citizens over 60 starting April 1, causing Rs 40,000 crore revenue loss"}'
+```
+
+**PowerShell (Windows):**
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8000/api/decompose" `
+  -Method Post `
+  -Headers @{"Content-Type" = "application/json"} `
+  -Body '{"text": "Finance Ministry eliminates all income tax for citizens over 60 starting April 1, causing Rs 40,000 crore revenue loss"}' | ConvertTo-Json -Depth 5
+```
+
+---
+
+### 9.6 Running the Test Suite
+
+Execute the Claim Decomposer isolation test suite to verify end-to-end decomposition with sample composite claims:
+
+```bash
+python backend/tests/test_decomposer.py
+```
+
+Or run tests with `pytest`:
+```bash
+pytest backend/tests
+```
+
+# 10. Evaluation Plan
 
 **Benchmark construction.** 100–150 claims with verified ground truth: mix of true, false, partially true, satire, and outdated claims; ~60% from the focused domain (Indian political/health misinformation), 40% general. Sources for ground truth: IFCN signatory verdicts, official records.
 
@@ -144,7 +279,7 @@ For each sub-claim, score = Σ(weight_tier × nli_confidence) over supporting it
 
 **Regression harness.** Every prompt change, model swap, or tier-weight change must re-run the benchmark; results are versioned and compared.
 
-# 10. Project Timeline (14 weeks)
+# 11. Project Timeline (14 weeks)
 
 | Weeks | Milestone                                                                      |
 | ----- | ------------------------------------------------------------------------------ |
@@ -159,16 +294,16 @@ For each sub-claim, score = Σ(weight_tier × nli_confidence) over supporting it
 | 13    | End-to-end hardening, Docker, CI/CD, deployment                                |
 | 14    | Documentation, demo video, guide review                                        |
 
-# 11. Expected Outcomes & Impact
+# 12. Expected Outcomes & Impact
 
 - A working system that matches or exceeds professional fact-checker agreement on the benchmark subset, while being fully auditable.
 - Demonstrated ability to say "I don't know" — a property most Gen AI systems lack.
 - Reusable components: claim decomposition module, evidence store schema, and the regression harness are applicable to any RAG/agent system.
 
-# 12. Future Scope
+# 13. Future Scope
 
 Multilingual claim verification; multimodal evidence (images, WhatsApp forwards screenshots via OCR); browser extension for one-click checks; continuous social-stream monitoring; reinforcement learning from human feedback on judge weighting.
 
-# 13. Conclusion
+# 14. Conclusion
 
 Veritas treats fake-news verification as an _evidence engineering_ problem rather than a prompting problem. By combining adversarial multi-agent retrieval, deterministic NLI labelling, source-tier weighting, abstention, and a rigorous evaluation benchmark, it converts a demo-grade idea into a production-grade, interview-defensible system where every verdict is traceable to a quoted source.
