@@ -22,6 +22,7 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "pgvector>=0.2.5",
     "sentence-transformers>=2.6.1",
+    "langfuse>=2.0.0",
 ]
 
 [project.optional-dependencies]
