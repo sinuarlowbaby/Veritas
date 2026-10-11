@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Dict
 
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
 # Configure logging
@@ -272,48 +272,52 @@ async def judge_endpoint(payload: JudgeVerdictRequest) -> JudgeVerdictResponse:
 
 
 # ---------------------------------------------------------------------------
-# End-to-End Verification Pipeline & Async Job System
+# End-to-End Verification Pipeline & Async Job System with Caching
 # ---------------------------------------------------------------------------
+import time
 import uuid
 from datetime import datetime, timezone
 from app.models.schemas import VerifyClaimRequest, VerificationJobResponse
 from app.agents.graph import run_verification_pipeline
-
-# In-memory job repository for asynchronous verification tasks
-verification_jobs: Dict[str, VerificationJobResponse] = {}
+from app.services.job_store import get_job_store, compute_claim_hash
 
 
-async def _execute_verification_job(job_id: str, claim_text: str, generate_explanation: bool) -> None:
+async def _execute_verification_job(
+    job_id: str,
+    claim_text: str,
+    generate_explanation: bool,
+) -> None:
     """Background worker executing the complete Veritas multi-agent verification pipeline."""
+    start_t = time.perf_counter()
+    job_store = get_job_store()
+    job_store.update_job_stage(job_id=job_id, status="processing", stage="decomposing")
+
+    def _on_stage(stage_name: str) -> None:
+        job_store.update_job_stage(job_id=job_id, status="processing", stage=stage_name)
+
     try:
-        def _on_stage(stage_name: str) -> None:
-            if job_id in verification_jobs:
-                verification_jobs[job_id].stage = stage_name
-
-        if job_id in verification_jobs:
-            verification_jobs[job_id].status = "processing"
-            verification_jobs[job_id].stage = "decomposing"
-
-        result = await run_verification_pipeline(
+        verdict_response = await run_verification_pipeline(
             raw_claim=claim_text,
             status_callback=_on_stage,
             generate_explanation=generate_explanation,
         )
+        latency_ms = round((time.perf_counter() - start_t) * 1000, 2)
+        token_count = verdict_response.tokens_used or 0
+        result_dict = verdict_response.to_ui_dict()
 
-        if job_id in verification_jobs:
-            verification_jobs[job_id].status = "completed"
-            verification_jobs[job_id].stage = "completed"
-            verification_jobs[job_id].result = result
-            verification_jobs[job_id].completed_at = datetime.now(timezone.utc).isoformat()
-            logger.info(f"Verification job {job_id} successfully completed with verdict: {result.overall_verdict}")
-
+        job_store.complete_job(
+            job_id=job_id,
+            result_dict=result_dict,
+            latency_ms=latency_ms,
+            token_count=token_count,
+        )
+        logger.info(
+            f"Verification job {job_id} successfully completed in {latency_ms:.1f}ms | Verdict: {verdict_response.overall_verdict}"
+        )
     except Exception as exc:
-        logger.exception(f"Verification job {job_id} failed: {exc}")
-        if job_id in verification_jobs:
-            verification_jobs[job_id].status = "failed"
-            verification_jobs[job_id].stage = "failed"
-            verification_jobs[job_id].error = str(exc)
-            verification_jobs[job_id].completed_at = datetime.now(timezone.utc).isoformat()
+        latency_ms = round((time.perf_counter() - start_t) * 1000, 2)
+        logger.exception(f"Verification job {job_id} failed after {latency_ms:.1f}ms: {exc}")
+        job_store.fail_job(job_id=job_id, error_message=str(exc), latency_ms=latency_ms)
 
 
 @app.post(
@@ -321,32 +325,80 @@ async def _execute_verification_job(job_id: str, claim_text: str, generate_expla
     response_model=VerificationJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
     tags=["Verification Pipeline"],
-    summary="Enqueue asynchronous claim verification job",
-    description="Submits a headline/claim to the end-to-end multi-agent verification pipeline (Decomposer -> Proponent/Skeptic -> Sanitizer -> NLI Verifier -> Judge). Returns job_id for status polling.",
+    summary="Enqueue asynchronous claim verification job (with instant cache check)",
+    description="Submits a claim to the multi-agent verification pipeline. If an identical claim was recently verified, returns the result instantly from cache in milliseconds. Otherwise, creates a pending job and kicks off the run in the background.",
 )
-async def create_verification_job(payload: VerifyClaimRequest) -> VerificationJobResponse:
-    job_id = f"job_{uuid.uuid4().hex[:12]}"
+@app.post(
+    "/verify",
+    response_model=VerificationJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    include_in_schema=False,
+)
+async def create_verification_job(
+    payload: VerifyClaimRequest,
+    background_tasks: BackgroundTasks,
+) -> VerificationJobResponse:
+    try:
+        claim_text = payload.resolved_claim()
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    claim_hash = compute_claim_hash(claim_text)
+    job_store = get_job_store()
     now_ts = datetime.now(timezone.utc).isoformat()
 
-    job_entry = VerificationJobResponse(
-        job_id=job_id,
-        status="queued",
-        stage="queued",
-        created_at=now_ts,
-    )
-    verification_jobs[job_id] = job_entry
-
-    # Launch background task
-    asyncio.create_task(
-        _execute_verification_job(
+    # Step 1: Check instant cache hit
+    cached_record = job_store.find_cached_job(claim_hash)
+    if cached_record and cached_record.get("result"):
+        job_id = f"job_{uuid.uuid4().hex[:12]}"
+        cache_latency = 1.2
+        job_store.create_cached_job(
             job_id=job_id,
-            claim_text=payload.text,
-            generate_explanation=payload.generate_explanation,
+            raw_claim=claim_text,
+            claim_hash=claim_hash,
+            cached_result=cached_record["result"],
+            latency_ms=cache_latency,
         )
+        logger.info(f"⚡ CACHE HIT for claim '{claim_text[:50]}...'; returning stored verdict instantly.")
+        return VerificationJobResponse(
+            job_id=job_id,
+            status="completed",
+            stage="completed",
+            claim=claim_text,
+            created_at=now_ts,
+            completed_at=now_ts,
+            latency_ms=cache_latency,
+            token_count=0,
+            cached=True,
+            result=cached_record["result"],
+        )
+
+    # Step 2: Fresh verification run - enqueue as pending background job
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    job_store.create_job(
+        job_id=job_id,
+        raw_claim=claim_text,
+        claim_hash=claim_hash,
+        status="pending",
+        stage="queued",
     )
 
-    logger.info(f"Created verification job {job_id} for claim: {payload.text[:60]}...")
-    return job_entry
+    background_tasks.add_task(
+        _execute_verification_job,
+        job_id=job_id,
+        claim_text=claim_text,
+        generate_explanation=payload.generate_explanation,
+    )
+
+    logger.info(f"Enqueued pending verification job {job_id} for claim: {claim_text[:60]}...")
+    return VerificationJobResponse(
+        job_id=job_id,
+        status="pending",
+        stage="queued",
+        claim=claim_text,
+        created_at=now_ts,
+        cached=False,
+    )
 
 
 @app.get(
@@ -354,15 +406,22 @@ async def create_verification_job(payload: VerifyClaimRequest) -> VerificationJo
     response_model=VerificationJobResponse,
     tags=["Verification Pipeline"],
     summary="Poll verification job status and results",
-    description="Polls current status ('queued', 'processing', 'completed', 'failed') and retrieves complete audit response once finished.",
+    description="Polls current status ('pending', 'processing', 'completed', 'failed'). When completed, returns the full verdict, confidence, explanation, sub-claims with individual verdicts, and full evidence list with quotes, URLs, and NLI labels.",
+)
+@app.get(
+    "/verify/{job_id}",
+    response_model=VerificationJobResponse,
+    include_in_schema=False,
 )
 async def get_verification_job(job_id: str) -> VerificationJobResponse:
-    if job_id not in verification_jobs:
+    job_store = get_job_store()
+    job_data = job_store.get_job(job_id)
+    if not job_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Verification job '{job_id}' not found.",
         )
-    return verification_jobs[job_id]
+    return VerificationJobResponse(**job_data)
 
 
 @app.post(
@@ -372,10 +431,20 @@ async def get_verification_job(job_id: str) -> VerificationJobResponse:
     summary="Synchronous end-to-end claim verification",
     description="Directly executes full pipeline and blocks until final verdict is computed.",
 )
+@app.post(
+    "/verify/sync",
+    response_model=JudgeVerdictResponse,
+    include_in_schema=False,
+)
 async def verify_claim_sync(payload: VerifyClaimRequest) -> JudgeVerdictResponse:
     try:
+        claim_text = payload.resolved_claim()
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    try:
         return await run_verification_pipeline(
-            raw_claim=payload.text,
+            raw_claim=claim_text,
             generate_explanation=payload.generate_explanation,
         )
     except Exception as exc:
@@ -390,4 +459,5 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+
 

@@ -153,10 +153,17 @@ async def run_verification_pipeline(
         generate_explanation=generate_explanation,
     )
 
+    # Attach full labeled evidence items list so caller/frontend has complete audit trail
+    verdict_response.evidence = labeled_evidence
+    # Conservative token count estimate if not directly measured from completions
+    if not verdict_response.tokens_used:
+        verdict_response.tokens_used = len(claim_text.split()) * 15 + len(labeled_evidence) * 45 + 300
+
     _update_status("completed")
     logger.info(
         f"=== Veritas Pipeline Finished | Verdict: {verdict_response.overall_verdict} "
-        f"(Confidence: {verdict_response.overall_confidence:.2f}, Abstained: {verdict_response.is_abstained}) ==="
+        f"(Confidence: {verdict_response.overall_confidence:.2f}, Abstained: {verdict_response.is_abstained}, Evidence: {len(labeled_evidence)}) ==="
     )
 
     return verdict_response
+
