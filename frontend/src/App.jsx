@@ -3,9 +3,13 @@ import ProvenanceGraph from './components/ProvenanceGraph';
 import SidePanel from './components/SidePanel';
 import ClaimInput from './components/ClaimInput';
 import VerdictBanner from './components/VerdictBanner';
+import EvidenceAuditList from './components/EvidenceAuditList';
 import FeedbackCard from './components/FeedbackCard';
 import AdminFeedbackModal from './components/AdminFeedbackModal';
-import { Scale, ShieldCheck, Flag, Network, Sparkles, Terminal } from 'lucide-react';
+import ErrorBanner from './components/ErrorBanner';
+import { Scale, ShieldCheck, Flag, Network, Sparkles, Terminal, BookOpen, Layers } from 'lucide-react';
+
+const STORAGE_KEY = 'veritas_latest_verification_job';
 
 const INITIAL_DEMO_JOB = {
   job_id: 'job_01df49be2a65',
@@ -32,10 +36,10 @@ const INITIAL_DEMO_JOB = {
         verdict: 'FALSE',
         confidence: 0.998,
         score: -0.998,
-        evidence_count: 5,
+        evidence_count: 3,
         supporting_count: 0,
-        refuting_count: 4,
-        neutral_count: 1
+        refuting_count: 3,
+        neutral_count: 0
       },
       {
         id: 'subclaim_2',
@@ -115,26 +119,67 @@ const INITIAL_DEMO_JOB = {
 };
 
 export default function App() {
-  const [jobData, setJobData] = useState(INITIAL_DEMO_JOB);
+  // Load persistent state from localStorage on refresh, or fallback to demo
+  const [jobData, setJobData] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.result) return parsed;
+      }
+    } catch (e) {
+      console.warn('Could not read saved job from localStorage:', e);
+    }
+    return INITIAL_DEMO_JOB;
+  });
+
   const [selectedNode, setSelectedNode] = useState(null);
   const [loading, setLoading] = useState(false);
   const [currentStage, setCurrentStage] = useState('queued');
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [error, setError] = useState(null);
+  const [lastClaim, setLastClaim] = useState('');
   const [adminModalOpen, setAdminModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('graph'); // 'graph' or 'raw_json'
 
   const timerRef = useRef(null);
+  const pollIntervalRef = useRef(null);
+
+  // Sync to localStorage on completed state updates
+  useEffect(() => {
+    if (jobData && jobData.status === 'completed' && jobData.result) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(jobData));
+      } catch (e) {
+        console.warn('Failed to save job to localStorage:', e);
+      }
+    }
+  }, [jobData]);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
 
   // Verification Pipeline Trigger & Polling
   const handleVerifyClaim = async (claimText) => {
+    // Reset state for new or repeated submission
+    setError(null);
+    setSelectedNode(null);
+    setLastClaim(claimText);
     setLoading(true);
     setCurrentStage('queued');
     setElapsedTime(0);
-    setSelectedNode(null);
+
+    // Stop any existing intervals
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
 
     // Start timer counter
     const startTime = Date.now();
-    if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 500);
@@ -148,12 +193,13 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to submit claim (HTTP ${response.status})`);
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Server returned HTTP ${response.status}`);
       }
 
       const initialData = await response.json();
 
-      // Case A: Instant Cache Hit!
+      // Case A: Instant Cache Hit! (Second submission or already evaluated)
       if (initialData.status === 'completed' && initialData.result) {
         clearInterval(timerRef.current);
         setJobData(initialData);
@@ -167,20 +213,20 @@ export default function App() {
     } catch (err) {
       clearInterval(timerRef.current);
       setLoading(false);
-      alert(`Verification error: ${err.message}`);
+      setError(err.message || 'Failed to submit verification job.');
     }
   };
 
-  const pollJobStatus = async (jobId) => {
-    const maxPollAttempts = 120; // 2 minutes max
+  const pollJobStatus = (jobId) => {
+    const maxPollAttempts = 120; // 2 minutes max before timeout
     let attempts = 0;
 
-    const pollInterval = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
       attempts += 1;
       try {
         const res = await fetch(`/api/verify/${jobId}`);
         if (!res.ok) {
-          throw new Error(`Poll returned HTTP ${res.status}`);
+          throw new Error(`Poll request returned HTTP ${res.status}`);
         }
         const data = await res.json();
 
@@ -188,51 +234,60 @@ export default function App() {
           setCurrentStage(data.stage);
         }
 
-        if (data.status === 'completed') {
-          clearInterval(pollInterval);
+        if (data.status === 'completed' && data.result) {
+          clearInterval(pollIntervalRef.current);
           clearInterval(timerRef.current);
           setJobData(data);
           setLoading(false);
         } else if (data.status === 'failed') {
-          clearInterval(pollInterval);
+          clearInterval(pollIntervalRef.current);
           clearInterval(timerRef.current);
           setLoading(false);
-          alert(`Pipeline failed: ${data.error || 'Unknown error'}`);
+          setError(data.error || 'The verification pipeline encountered an internal evaluation failure.');
         } else if (attempts >= maxPollAttempts) {
-          clearInterval(pollInterval);
+          clearInterval(pollIntervalRef.current);
           clearInterval(timerRef.current);
           setLoading(false);
-          alert('Verification timed out after 120 seconds.');
+          setError('Verification timed out after 120 seconds. The agents may have exceeded web retrieval quota or network limits.');
         }
       } catch (pollErr) {
         console.error('Polling error:', pollErr);
+        // Continue retrying up to max attempts in case of intermittent network glitch
+        if (attempts >= maxPollAttempts) {
+          clearInterval(pollIntervalRef.current);
+          clearInterval(timerRef.current);
+          setLoading(false);
+          setError(`Network connection lost while polling job ${jobId}: ${pollErr.message}`);
+        }
       }
     }, 1000);
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0e17', color: '#f8fafc', paddingBottom: '60px' }}>
+    <div style={{ minHeight: '100vh', background: '#0a0e17', color: '#f8fafc', paddingBottom: '60px', overflowX: 'hidden' }}>
       {/* Top Navigation Header */}
       <header
         style={{
           borderBottom: '1px solid #1e293b',
-          background: 'rgba(11, 15, 25, 0.85)',
+          background: 'rgba(11, 15, 25, 0.9)',
           backdropFilter: 'blur(12px)',
           position: 'sticky',
           top: 0,
           zIndex: 50,
-          padding: '14px 28px',
+          padding: '12px 24px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div
             style={{
-              width: '38px',
-              height: '38px',
-              borderRadius: '10px',
+              width: '36px',
+              height: '36px',
+              borderRadius: '9px',
               background: 'linear-gradient(135deg, #0284c7, #3b82f6)',
               display: 'flex',
               alignItems: 'center',
@@ -240,11 +295,11 @@ export default function App() {
               boxShadow: '0 4px 12px rgba(2, 132, 199, 0.4)',
             }}
           >
-            <Scale size={22} color="#ffffff" />
+            <Scale size={20} color="#ffffff" />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h1 style={{ fontSize: '18px', fontWeight: '800', letterSpacing: '-0.02em', color: '#ffffff' }}>
+              <h1 style={{ fontSize: '17px', fontWeight: '800', letterSpacing: '-0.02em', color: '#ffffff' }}>
                 VERITAS
               </h1>
               <span
@@ -267,7 +322,7 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             onClick={() => setActiveTab(activeTab === 'graph' ? 'raw_json' : 'graph')}
             style={{
@@ -284,7 +339,7 @@ export default function App() {
             }}
           >
             <Terminal size={14} />
-            <span>{activeTab === 'graph' ? 'View API JSON' : 'View Graph'}</span>
+            <span>{activeTab === 'graph' ? 'Inspect API JSON' : 'Back to Graph'}</span>
           </button>
 
           <button
@@ -308,8 +363,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Container */}
-      <main style={{ maxWidth: '1440px', margin: '0 auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Main Container (Balanced for 13-16 inch laptop screens) */}
+      <main style={{ maxWidth: '1360px', margin: '0 auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         {/* Verification Input & Demo Presets */}
         <ClaimInput
           onVerify={handleVerifyClaim}
@@ -318,17 +373,26 @@ export default function App() {
           elapsedTime={elapsedTime}
         />
 
+        {/* Error Notice (if timeout or failure) */}
+        {error && (
+          <ErrorBanner
+            error={error}
+            onRetry={() => lastClaim && handleVerifyClaim(lastClaim)}
+            onDismiss={() => setError(null)}
+          />
+        )}
+
         {/* Aggregated Verdict Banner */}
         <VerdictBanner jobData={jobData} />
 
-        {/* Content Area: Provenance Graph + Inspector SidePanel */}
+        {/* Primary View: Cytoscape Provenance Graph + Node Audit Inspector */}
         {activeTab === 'graph' ? (
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'minmax(0, 1.8fr) minmax(360px, 1fr)',
-              gap: '20px',
-              height: '580px',
+              gridTemplateColumns: 'minmax(0, 1.8fr) minmax(340px, 1fr)',
+              gap: '18px',
+              height: 'clamp(460px, 52vh, 560px)',
             }}
           >
             {/* Cytoscape 3-Layer Graph */}
@@ -347,7 +411,7 @@ export default function App() {
           </div>
         ) : (
           /* Raw API Response View to verify Frontend is a pure Dumb Renderer */
-          <div className="glass-panel" style={{ padding: '20px', maxHeight: '560px', overflowY: 'auto' }}>
+          <div className="glass-panel" style={{ padding: '20px', maxHeight: '520px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <h4 style={{ fontSize: '13px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: '700' }}>
                 Full Verification Job Response JSON (Dumb Renderer Output)
@@ -372,12 +436,19 @@ export default function App() {
           </div>
         )}
 
+        {/* Verbatim Evidence & Sub-claims Audit Trail (Directly Visible, Never Hidden) */}
+        <EvidenceAuditList
+          result={jobData?.result}
+          onSelectNode={(node) => setSelectedNode(node)}
+          selectedNodeId={selectedNode?.id}
+        />
+
         {/* Feedback Card (Thumbs up/down loop for the current verdict) */}
         <FeedbackCard
           jobId={jobData?.job_id}
           verdict={jobData?.result?.verdict}
           onFeedbackSubmitted={(fb) => {
-            console.log('Feedback submitted:', fb);
+            console.log('Feedback recorded for job:', fb);
           }}
         />
       </main>
