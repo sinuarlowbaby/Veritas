@@ -82,6 +82,13 @@ class JobStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);")
             conn.commit()
 
+    def clear(self) -> None:
+        """Clears all jobs from the jobs table (for test isolation)."""
+        with self._get_connection() as conn:
+            conn.execute("DELETE FROM jobs;")
+            conn.commit()
+
+
     def create_job(
         self,
         job_id: str,
