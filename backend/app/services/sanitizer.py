@@ -234,6 +234,90 @@ def sanitize_evidence(
     return cleaned
 
 
+EVALUATIVE_KEYWORDS = {
+    "false",
+    "fake",
+    "hoax",
+    "debunk",
+    "debunked",
+    "misleading",
+    "baseless",
+    "unfounded",
+    "denied",
+    "denies",
+    "clarified",
+    "clarifies",
+    "no evidence",
+    "myth",
+    "refuted",
+    "refutes",
+    "untrue",
+    "rumor",
+    "rumour",
+    "fact check",
+    "fact-check",
+    "confirmed",
+    "true",
+    "correct",
+    "official statement",
+}
+
+
+def extract_best_quote(
+    content: str,
+    snippet: str,
+    sub_claim: str,
+    max_chars: int = 380,
+) -> str:
+    """
+    Intelligently selects the most relevant, evaluative quote from page content or snippet.
+    Prioritizes statements containing both sub-claim entities and fact-checking conclusions
+    (e.g., 'clarified', 'denied', 'false', 'baseless', 'confirmed') over generic intro paragraphs.
+    """
+    candidates: List[str] = []
+
+    # Include snippet as strong candidate
+    if snippet and len(snippet.strip()) >= 20:
+        candidates.append(snippet.strip())
+
+    if content:
+        # Split content into paragraphs and sentences
+        raw_paras = [p.strip() for p in re.split(r"\n+|\.\s+", content) if len(p.strip()) >= 25]
+        candidates.extend(raw_paras[:15])
+
+    if not candidates:
+        return clean_text_quote(content or snippet or "", max_chars=max_chars)
+
+    sc_words = set(re.findall(r"\w+", sub_claim.lower())) - {
+        "the", "a", "an", "in", "on", "of", "to", "for", "is", "was", "and", "or", "that", "this", "it"
+    }
+
+    best_candidate = candidates[0]
+    best_score = -1.0
+
+    for cand in candidates:
+        cand_clean = clean_text_quote(cand, max_chars=max_chars)
+        if len(cand_clean) < 20:
+            continue
+        cand_lower = cand_clean.lower()
+
+        # Word overlap score
+        cand_words = set(re.findall(r"\w+", cand_lower))
+        overlap = len(sc_words.intersection(cand_words))
+
+        # Evaluative keyword bonus
+        eval_matches = sum(1 for kw in EVALUATIVE_KEYWORDS if kw in cand_lower)
+
+        # Composite score
+        score = overlap + (eval_matches * 3.5)
+
+        if score > best_score:
+            best_score = score
+            best_candidate = cand_clean
+
+    return best_candidate
+
+
 def search_result_to_evidence(
     result: SearchResult,
     sub_claim_id: str,
@@ -242,21 +326,15 @@ def search_result_to_evidence(
 ) -> Optional[EvidenceItem]:
     """
     Converts a SearchResult (from web_search or rag_retriever) into an EvidenceItem.
-    Extracts the most salient quote from content or snippet.
+    Extracts the most salient quote from content or snippet using intelligent quote selection.
     """
     # Pick the best candidate quote text
-    content_text = (result.content or "").strip()
-    snippet_text = (result.snippet or "").strip()
-
-    raw_quote = ""
-    if content_text and len(content_text) >= 30:
-        raw_quote = content_text
-    elif snippet_text and len(snippet_text) >= 15:
-        raw_quote = snippet_text
-    elif result.title:
-        raw_quote = result.title
-
-    clean_quote = clean_text_quote(raw_quote, max_chars=350)
+    clean_quote = extract_best_quote(
+        content=result.content or "",
+        snippet=result.snippet or "",
+        sub_claim=sub_claim,
+        max_chars=380,
+    )
     if len(clean_quote) < 15:
         return None
 
@@ -275,3 +353,4 @@ def search_result_to_evidence(
         retrieved_by=retrieved_by,
         curated=is_curated,
     )
+
