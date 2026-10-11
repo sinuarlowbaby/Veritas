@@ -68,8 +68,11 @@ from app.models.schemas import (
     BatchQuestionsResponse,
     NLIRequest,
     NLIResponse,
+    JudgeVerdictRequest,
+    JudgeVerdictResponse,
 )
 from app.agents.decomposer import decompose_claim
+from app.agents.judge import judge_evaluate_claim
 from app.tools.web_search import search_web, WebSearchError
 from app.tools.rag_retriever import retrieve_curated_evidence
 from app.services.nli_verifier import get_nli_verifier
@@ -250,6 +253,22 @@ async def nli_verify_endpoint(payload: NLIRequest) -> NLIResponse:
     pairs = [(p.get("sub_claim", ""), p.get("quote", "")) for p in payload.pairs]
     results = await verifier.apredict_pairs(pairs)
     return NLIResponse(total_pairs=len(results), results=results)
+
+
+@app.post(
+    "/api/judge",
+    response_model=JudgeVerdictResponse,
+    tags=["Judge Agent"],
+    summary="Evaluate claim verdict deterministically with LLM explanation",
+    description="Scores evidence per tier weight and recency decay, aggregates sub-claims, triggers abstention when evidence is thin, and produces a 3-5 sentence explanation citing quotes.",
+)
+async def judge_endpoint(payload: JudgeVerdictRequest) -> JudgeVerdictResponse:
+    return await judge_evaluate_claim(
+        raw_claim=payload.raw_claim,
+        sub_claims=payload.sub_claims,
+        evidence_items=payload.evidence,
+        generate_explanation=payload.generate_explanation,
+    )
 
 
 if __name__ == "__main__":

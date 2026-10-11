@@ -298,3 +298,35 @@ class NLIRequest(BaseModel):
 class NLIResponse(BaseModel):
     total_pairs: int = Field(..., description="Total pairs evaluated.")
     results: List[NLIPairResult] = Field(default_factory=list, description="List of NLI verification results.")
+
+
+class SubClaimVerdict(BaseModel):
+    sub_claim_id: str = Field(..., description="Unique sub-claim identifier.")
+    sub_claim: str = Field(..., description="The sub-claim text.")
+    score: float = Field(..., description="Calculated deterministic math score.")
+    verdict: str = Field(..., description="TRUE, FALSE, PARTIALLY TRUE, or UNVERIFIED.")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Calibrated confidence score.")
+    evidence_count: int = Field(default=0, description="Total evidence items evaluated.")
+    supporting_count: int = Field(default=0, description="Number of supporting items.")
+    refuting_count: int = Field(default=0, description="Number of refuting items.")
+    neutral_count: int = Field(default=0, description="Number of neutral items.")
+    key_evidence: List[EvidenceItem] = Field(default_factory=list, description="Top evidence items.")
+
+
+class JudgeVerdictRequest(BaseModel):
+    raw_claim: str = Field(..., min_length=3, description="Original headline or composite claim.")
+    sub_claims: List[SubClaim] = Field(..., min_length=1, description="Decomposed atomic sub-claims.")
+    evidence: List[EvidenceItem] = Field(default_factory=list, description="Labeled evidence items.")
+    generate_explanation: bool = Field(default=True, description="Whether to invoke LLM narrator for 3-5 sentence explanation.")
+
+
+class JudgeVerdictResponse(BaseModel):
+    raw_claim: str = Field(..., description="Original claim text.")
+    overall_verdict: str = Field(..., description="Aggregated verdict: TRUE, FALSE, PARTIALLY TRUE, or UNVERIFIED.")
+    overall_confidence: float = Field(..., ge=0.0, le=1.0, description="Calibrated aggregated confidence.")
+    overall_score: float = Field(..., description="Aggregated score.")
+    is_abstained: bool = Field(default=False, description="True if system abstained (verdict is UNVERIFIED due to low evidence/confidence).")
+    sub_claim_verdicts: List[SubClaimVerdict] = Field(default_factory=list, description="Per-sub-claim verdict breakdowns.")
+    explanation: str = Field(default="", description="Narrative 3-5 sentence audit explanation citing quotes.")
+    key_citations: List[str] = Field(default_factory=list, description="Key source URLs cited in justification.")
+
