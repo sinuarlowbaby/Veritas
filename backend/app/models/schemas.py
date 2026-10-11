@@ -40,6 +40,96 @@ class DecomposeResponse(BaseModel):
     )
 
 
+class SearchResult(BaseModel):
+    title: str = Field(
+        ...,
+        description="Headline or title of the search result.",
+    )
+    url: str = Field(
+        ...,
+        description="URL of the web page.",
+    )
+    snippet: str = Field(
+        default="",
+        description="Search snippet or summary text.",
+    )
+    content: str = Field(
+        default="",
+        description="Extracted page text or rendered content.",
+    )
+    source: str = Field(
+        ...,
+        description="Search provider that returned this result (e.g., 'tinyfish', 'tavily', 'duckduckgo').",
+    )
+
+
+class SearchRequest(BaseModel):
+    question: str = Field(
+        default="",
+        description="The question or claim to search on the live web.",
+    )
+    query: str = Field(
+        default="",
+        description="Alternative alias for question.",
+    )
+    max_results: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum number of search results to retrieve.",
+    )
+
+    def resolved_query(self) -> str:
+        val = (self.question or self.query or "").strip()
+        if len(val) < 2:
+            raise ValueError("Please provide a question or query with at least 2 characters.")
+        return val
+
+
+class SearchResponse(BaseModel):
+    question: str = Field(
+        ...,
+        description="The question or query submitted.",
+    )
+    provider_used: str = Field(
+        ...,
+        description="Search provider that fulfilled the request ('tinyfish', 'tavily', or 'duckduckgo').",
+    )
+    total_results: int = Field(
+        ...,
+        description="Number of search results returned.",
+    )
+    results: List[SearchResult] = Field(
+        default_factory=list,
+        description="List of search results including clean extracted page text.",
+    )
+
+
+class BatchQuestionsRequest(BaseModel):
+    questions: List[str] = Field(
+        ...,
+        min_length=1,
+        description="List of questions or sub-claims to search.",
+    )
+    max_results: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum search results per question.",
+    )
+
+
+class BatchQuestionsResponse(BaseModel):
+    total_questions: int = Field(
+        ...,
+        description="Total number of questions processed.",
+    )
+    responses: List[SearchResponse] = Field(
+        default_factory=list,
+        description="List of search results per question.",
+    )
+
+
 class CuratedFactChunk(BaseModel):
     id: Optional[Union[str, int]] = Field(
         default=None,
