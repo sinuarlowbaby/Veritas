@@ -1,3 +1,17 @@
-from app.models.schemas import SubClaim, DecomposeRequest, DecomposeResponse
+from app.models.schemas import (
+    SubClaim,
+    DecomposeRequest,
+    DecomposeResponse,
+    CuratedFactChunk,
+    CuratedFactSearchRequest,
+    CuratedFactSearchResponse,
+)
 
-__all__ = ["SubClaim", "DecomposeRequest", "DecomposeResponse"]
+__all__ = [
+    "SubClaim",
+    "DecomposeRequest",
+    "DecomposeResponse",
+    "CuratedFactChunk",
+    "CuratedFactSearchRequest",
+    "CuratedFactSearchResponse",
+]
