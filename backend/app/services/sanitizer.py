@@ -292,8 +292,9 @@ def extract_best_quote(
         "the", "a", "an", "in", "on", "of", "to", "for", "is", "was", "and", "or", "that", "this", "it"
     }
 
-    best_candidate = candidates[0]
-    best_score = -1.0
+    best_candidate = ""
+    best_score = 0.0
+    best_overlap = 0
 
     for cand in candidates:
         cand_clean = clean_text_quote(cand, max_chars=max_chars)
@@ -301,9 +302,12 @@ def extract_best_quote(
             continue
         cand_lower = cand_clean.lower()
 
-        # Word overlap score
+        # Word overlap score: count how many substantive terms from the sub-claim appear
         cand_words = set(re.findall(r"\w+", cand_lower))
         overlap = len(sc_words.intersection(cand_words))
+        if overlap == 0:
+            # Completely irrelevant search noise (e.g. general news from a generic fact-check site)
+            continue
 
         # Evaluative keyword bonus: heavily prioritize actual debunking/verdict sentences over mere repetitions of the rumor
         eval_matches = sum(1 for kw in EVALUATIVE_KEYWORDS if kw in cand_lower)
@@ -311,12 +315,16 @@ def extract_best_quote(
         # Composite score: evaluative keywords outweigh mere lexical overlap with the viral rumor
         score = overlap + (eval_matches * 10.0)
 
-
         if score > best_score:
             best_score = score
+            best_overlap = overlap
             best_candidate = cand_clean
 
+    if best_overlap == 0 or not best_candidate:
+        return ""
+
     return best_candidate
+
 
 
 def search_result_to_evidence(
