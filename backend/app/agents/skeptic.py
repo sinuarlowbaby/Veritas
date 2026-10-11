@@ -58,7 +58,7 @@ async def harvest_skeptic_evidence(
             return await retrieve_curated_evidence(
                 query=rag_query,
                 top_k=max_rag_results,
-                min_similarity=0.20,
+                min_similarity=0.45,
             )
         except Exception as exc:
             logger.warning(f"Skeptic RAG query failed for [{sub_claim.id}]: {exc}")

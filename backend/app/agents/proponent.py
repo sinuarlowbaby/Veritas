@@ -56,7 +56,7 @@ async def harvest_proponent_evidence(
             return await retrieve_curated_evidence(
                 query=sub_claim.text,
                 top_k=max_rag_results,
-                min_similarity=0.20,
+                min_similarity=0.45,
             )
         except Exception as exc:
             logger.warning(f"Proponent RAG query failed for [{sub_claim.id}]: {exc}")
