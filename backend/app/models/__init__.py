@@ -14,6 +14,9 @@ from app.models.schemas import (
     NLIPairResult,
     NLIRequest,
     NLIResponse,
+    SubClaimVerdict,
+    JudgeVerdictRequest,
+    JudgeVerdictResponse,
 )
 
 __all__ = [
@@ -32,4 +35,7 @@ __all__ = [
     "NLIPairResult",
     "NLIRequest",
     "NLIResponse",
+    "SubClaimVerdict",
+    "JudgeVerdictRequest",
+    "JudgeVerdictResponse",
 ]
