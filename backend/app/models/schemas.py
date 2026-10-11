@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
@@ -218,3 +218,83 @@ class CuratedFactSearchResponse(BaseModel):
         default_factory=list,
         description="Ranked list of curated fact-check chunks with verdict metadata.",
     )
+
+
+class EvidenceItem(BaseModel):
+    evidence_id: Optional[str] = Field(
+        default=None,
+        description="Unique identifier for evidence item (e.g. 'ev_123').",
+    )
+    sub_claim_id: str = Field(
+        ...,
+        description="ID of the sub-claim this evidence was retrieved for.",
+    )
+    sub_claim: Optional[str] = Field(
+        default="",
+        description="The verbatim sub-claim text.",
+    )
+    quote: str = Field(
+        ...,
+        description="Verbatim quote from source.",
+    )
+    source_url: str = Field(
+        ...,
+        description="URL of source publication.",
+    )
+    domain: Optional[str] = Field(
+        default="",
+        description="Extracted domain (e.g. 'who.int', 'boomlive.in').",
+    )
+    domain_tier: Optional[int] = Field(
+        default=2,
+        description="Credibility tier: 1=Curated fact-checker, 2=Gov/Official, 3=Reputable news, 4=Web/Unverified.",
+    )
+    publish_date: Optional[str] = Field(
+        default=None,
+        description="Publication date of the evidence.",
+    )
+    retrieved_date: Optional[str] = Field(
+        default=None,
+        description="Timestamp when evidence was retrieved.",
+    )
+    retrieved_by: Optional[str] = Field(
+        default="proponent",
+        description="'proponent' or 'skeptic'.",
+    )
+    curated: bool = Field(
+        default=False,
+        description="True if retrieved from curated fact-check vector store.",
+    )
+    nli_label: Optional[str] = Field(
+        default=None,
+        description="Deterministic NLI label: 'SUPPORTS', 'REFUTES', or 'NEUTRAL'.",
+    )
+    nli_confidence: Optional[float] = Field(
+        default=None,
+        description="Softmax confidence score for the winning NLI label (0.0 to 1.0).",
+    )
+    nli_scores: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Full probability distribution over SUPPORTS, REFUTES, and NEUTRAL.",
+    )
+
+
+class NLIPairResult(BaseModel):
+    sub_claim: str = Field(..., description="The sub-claim text.")
+    quote: str = Field(..., description="The evidence quote text.")
+    nli_label: str = Field(..., description="SUPPORTS, REFUTES, or NEUTRAL.")
+    nli_confidence: float = Field(..., description="Confidence score between 0.0 and 1.0.")
+    scores: Dict[str, float] = Field(default_factory=dict, description="Probabilities for each class.")
+
+
+class NLIRequest(BaseModel):
+    pairs: List[Dict[str, str]] = Field(
+        ...,
+        min_length=1,
+        description="List of dicts with 'sub_claim' and 'quote' keys.",
+    )
+
+
+class NLIResponse(BaseModel):
+    total_pairs: int = Field(..., description="Total pairs evaluated.")
+    results: List[NLIPairResult] = Field(default_factory=list, description="List of NLI verification results.")

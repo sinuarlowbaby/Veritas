@@ -18,10 +18,17 @@ logger = logging.getLogger("veritas")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Lifespan context manager for startup and shutdown events."""
-    logger.info("Starting up Veritas API...")
-    logger.info("Running on http://localhost:8000")
-    logger.info("docs at http://localhost:8000/docs")
-    # Initialize resources (e.g. DB pools, RAG retriever, model caches) here if needed
+    logger.info("Initializing Veritas API services...")
+    # Preload NLI Cross-Encoder model once at startup (inside lifespan, not per request)
+    try:
+        from app.services.nli_verifier import get_nli_verifier
+        verifier = get_nli_verifier()
+        verifier.load_model()
+        app.state.nli_verifier = verifier
+        logger.info("NLI Verifier cross-encoder model loaded and ready in lifespan.")
+    except Exception as exc:
+        logger.warning(f"NLI model preloading in lifespan encountered notice: {exc}")
+
     yield
     # Cleanup resources on shutdown
     logger.info("Shutting down Veritas API...")
@@ -59,10 +66,13 @@ from app.models.schemas import (
     SearchResponse,
     BatchQuestionsRequest,
     BatchQuestionsResponse,
+    NLIRequest,
+    NLIResponse,
 )
 from app.agents.decomposer import decompose_claim
 from app.tools.web_search import search_web, WebSearchError
 from app.tools.rag_retriever import retrieve_curated_evidence
+from app.services.nli_verifier import get_nli_verifier
 
 @app.get("/health", tags=["System"])
 async def health_check() -> Dict[str, str]:
@@ -226,6 +236,20 @@ async def rag_retrieve_get_endpoint(
     max_results: int = Query(default=5, ge=1, le=20, description="Max chunks to return"),
 ) -> SearchResponse:
     return await rag_retrieve_endpoint(SearchRequest(question=question, max_results=max_results))
+
+
+@app.post(
+    "/api/nli/verify",
+    response_model=NLIResponse,
+    tags=["NLI Verifier"],
+    summary="Deterministic NLI verification for (sub_claim, quote) pairs",
+    description="Labels (sub_claim, quote) pairs into SUPPORTS, REFUTES, or NEUTRAL with confidence scores.",
+)
+async def nli_verify_endpoint(payload: NLIRequest) -> NLIResponse:
+    verifier = get_nli_verifier()
+    pairs = [(p.get("sub_claim", ""), p.get("quote", "")) for p in payload.pairs]
+    results = await verifier.apredict_pairs(pairs)
+    return NLIResponse(total_pairs=len(results), results=results)
 
 
 if __name__ == "__main__":

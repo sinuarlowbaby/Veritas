@@ -10,6 +10,10 @@ from app.models.schemas import (
     CuratedFactChunk,
     CuratedFactSearchRequest,
     CuratedFactSearchResponse,
+    EvidenceItem,
+    NLIPairResult,
+    NLIRequest,
+    NLIResponse,
 )
 
 __all__ = [
@@ -24,4 +28,8 @@ __all__ = [
     "CuratedFactChunk",
     "CuratedFactSearchRequest",
     "CuratedFactSearchResponse",
+    "EvidenceItem",
+    "NLIPairResult",
+    "NLIRequest",
+    "NLIResponse",
 ]
