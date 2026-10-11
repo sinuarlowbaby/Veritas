@@ -1,5 +1,6 @@
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
+
 
 
 class SubClaim(BaseModel):
@@ -329,18 +330,71 @@ class JudgeVerdictResponse(BaseModel):
     sub_claim_verdicts: List[SubClaimVerdict] = Field(default_factory=list, description="Per-sub-claim verdict breakdowns.")
     explanation: str = Field(default="", description="Narrative 3-5 sentence audit explanation citing quotes.")
     key_citations: List[str] = Field(default_factory=list, description="Key source URLs cited in justification.")
+    evidence: List[EvidenceItem] = Field(default_factory=list, description="List of all evaluated evidence quotes with URLs, domain tiers, and NLI labels.")
+    tokens_used: int = Field(default=0, description="Total LLM tokens utilized across decomposition and explanation.")
+
+    def to_ui_dict(self) -> Dict[str, Any]:
+        """Formats the response for dumb rendering by frontend UI without requiring any frontend business logic."""
+        return {
+            "claim": self.raw_claim,
+            "verdict": self.overall_verdict,
+            "confidence": round(self.overall_confidence, 4),
+            "score": round(self.overall_score, 4),
+            "is_abstained": self.is_abstained,
+            "explanation": self.explanation,
+            "key_citations": self.key_citations,
+            "sub_claims": [
+                {
+                    "id": sc.sub_claim_id,
+                    "text": sc.sub_claim,
+                    "verdict": sc.verdict,
+                    "confidence": round(sc.confidence, 4),
+                    "score": round(sc.score, 4),
+                    "evidence_count": sc.evidence_count,
+                    "supporting_count": sc.supporting_count,
+                    "refuting_count": sc.refuting_count,
+                    "neutral_count": sc.neutral_count,
+                }
+                for sc in self.sub_claim_verdicts
+            ],
+            "evidence": [
+                {
+                    "evidence_id": ev.evidence_id,
+                    "sub_claim_id": ev.sub_claim_id,
+                    "sub_claim": ev.sub_claim,
+                    "quote": ev.quote,
+                    "source_url": ev.source_url,
+                    "domain": ev.domain,
+                    "domain_tier": ev.domain_tier,
+                    "nli_label": ev.nli_label,
+                    "nli_confidence": ev.nli_confidence,
+                    "retrieved_by": ev.retrieved_by,
+                    "curated": ev.curated,
+                }
+                for ev in self.evidence
+            ],
+        }
 
 
 class VerifyClaimRequest(BaseModel):
-    text: str = Field(
-        ...,
-        min_length=3,
-        description="Raw headline, article excerpt, or composite claim to verify.",
+    claim: Optional[str] = Field(
+        default=None,
+        description="Raw headline or claim to verify.",
+    )
+    text: Optional[str] = Field(
+        default=None,
+        description="Alternative alias for claim.",
     )
     generate_explanation: bool = Field(
         default=True,
         description="Whether to invoke the LLM narrator to generate a 3-5 sentence audit explanation.",
     )
+
+    def resolved_claim(self) -> str:
+        val = (self.claim or self.text or "").strip()
+        if len(val) < 3:
+            raise ValueError("Claim must be at least 3 characters long.")
+        return val
 
 
 class VerificationJobResponse(BaseModel):
@@ -350,11 +404,15 @@ class VerificationJobResponse(BaseModel):
     )
     status: str = Field(
         ...,
-        description="Current status of the job: 'queued', 'processing', 'completed', or 'failed'.",
+        description="Current status of the job: 'pending', 'processing', 'completed', or 'failed'.",
     )
     stage: Optional[str] = Field(
         default=None,
-        description="Detailed execution stage: 'decomposing', 'harvesting_evidence', 'sanitizing', 'nli_verification', 'judge_evaluating', 'completed'.",
+        description="Detailed execution stage: 'queued', 'decomposing', 'harvesting_evidence', 'sanitizing', 'nli_verification', 'judge_evaluating', 'completed'.",
+    )
+    claim: str = Field(
+        default="",
+        description="The claim submitted for verification.",
     )
     created_at: str = Field(
         ...,
@@ -364,13 +422,26 @@ class VerificationJobResponse(BaseModel):
         default=None,
         description="Job completion timestamp (ISO 8601).",
     )
-    result: Optional[JudgeVerdictResponse] = Field(
+    latency_ms: Optional[float] = Field(
         default=None,
-        description="Final verification verdict response if completed.",
+        description="Total execution latency in milliseconds.",
+    )
+    token_count: Optional[int] = Field(
+        default=0,
+        description="Total LLM tokens logged across decomposition and judge explanation.",
+    )
+    cached: bool = Field(
+        default=False,
+        description="True if response was served from cache in milliseconds.",
+    )
+    result: Optional[Union[Dict[str, Any], JudgeVerdictResponse]] = Field(
+        default=None,
+        description="Full verification result dictionary for UI rendering.",
     )
     error: Optional[str] = Field(
         default=None,
         description="Error details if the job failed.",
     )
+
 
 
