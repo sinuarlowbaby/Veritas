@@ -14,6 +14,9 @@ import EvidenceView from './components/EvidenceView';
 import ProvenanceGraph from './components/ProvenanceGraph';
 import HistoryView from './components/HistoryView';
 
+// Utilities
+import { classifyError } from './utils/classifyError';
+
 import { Shield } from 'lucide-react';
 
 const HISTORY_KEY = 'veritas_history';
@@ -34,11 +37,16 @@ export default function App() {
   // Currently selected / displayed job
   const [jobData, setJobData] = useState(null);
 
+  // True when the displayed job was loaded from history (not a fresh pipeline run).
+  // Used to show the Re-audit button on VerdictHeader.
+  const [isHistoricalJob, setIsHistoricalJob] = useState(false);
+
   // UI state
   const [activeView, setActiveView] = useState('audit');
   const [loading, setLoading] = useState(false);
   const [currentStage, setCurrentStage] = useState('queued');
   const [elapsedTime, setElapsedTime] = useState(0);
+  // error is either null, a plain string, or a { message, hint, retryable } object
   const [error, setError] = useState(null);
   const [lastClaim, setLastClaim] = useState('');
 
@@ -71,6 +79,7 @@ export default function App() {
 
   const handleNewAudit = () => {
     setJobData(null);
+    setIsHistoricalJob(false);
     setError(null);
     setActiveView('audit');
   };
@@ -78,8 +87,15 @@ export default function App() {
   // ─── Select a history item → load it and jump to audit view ──────────────
   const handleSelectHistory = (item) => {
     setJobData(item);
+    setIsHistoricalJob(true);  // mark as historical so Re-audit button appears
     setError(null);
     setActiveView('audit');
+  };
+
+  // ─── Re-audit a historical claim ─────────────────────────────────────────
+  // Triggered by the Re-audit button in VerdictHeader.
+  const handleReaudit = (claimText) => {
+    handleVerifyClaim(claimText);
   };
 
   // ─── Submit new claim ─────────────────────────────────────────────────────
@@ -88,6 +104,7 @@ export default function App() {
     setLastClaim(claimText);
     setLoading(true);
     setJobData(null);
+    setIsHistoricalJob(false);  // fresh run — no Re-audit button until completed
     setCurrentStage('queued');
     setElapsedTime(0);
     setActiveView('audit');
@@ -109,7 +126,8 @@ export default function App() {
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.detail || `Server returned HTTP ${response.status}`);
+        const rawMsg = errJson.detail || `Server returned HTTP ${response.status}`;
+        throw Object.assign(new Error(rawMsg), { httpStatus: response.status });
       }
 
       const initialData = await response.json();
@@ -128,7 +146,7 @@ export default function App() {
     } catch (err) {
       clearInterval(timerRef.current);
       setLoading(false);
-      setError(err.message || 'Failed to submit the verification job.');
+      setError(classifyError(err.message, err.httpStatus ?? null));
     }
   };
 
@@ -155,19 +173,19 @@ export default function App() {
           clearInterval(pollRef.current);
           clearInterval(timerRef.current);
           setLoading(false);
-          setError(data.error || 'The verification pipeline encountered a failure.');
+          setError(classifyError(data.error || 'The verification pipeline encountered a failure.'));
         } else if (attempts >= maxAttempts) {
           clearInterval(pollRef.current);
           clearInterval(timerRef.current);
           setLoading(false);
-          setError('Verification timed out after 120 seconds.');
+          setError(classifyError('Verification timed out after 120 seconds.'));
         }
       } catch (pollErr) {
         if (attempts >= maxAttempts) {
           clearInterval(pollRef.current);
           clearInterval(timerRef.current);
           setLoading(false);
-          setError(`Network error: ${pollErr.message}`);
+          setError(classifyError(pollErr.message));
         }
       }
     }, 1000);
@@ -197,7 +215,11 @@ export default function App() {
             {/* Results — only show real data */}
             {jobData?.result && !loading && (
               <>
-                <VerdictHeader jobData={jobData} />
+                <VerdictHeader
+                  jobData={jobData}
+                  // Pass onReaudit only for historical jobs so the button appears
+                  onReaudit={isHistoricalJob ? handleReaudit : undefined}
+                />
                 <FeedbackRow
                   jobId={jobData.job_id}
                   verdict={jobData.result.verdict}

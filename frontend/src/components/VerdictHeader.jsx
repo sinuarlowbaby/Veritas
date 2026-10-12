@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, RotateCcw } from 'lucide-react';
 import { VerdictDot, verdictClass, verdictLabel, nliClass, nliLabel } from './VerdictDot';
 
 /**
  * EvidenceQuote — Serif italic block quote with left border.
- * Shows: quote text, then: colored dot + NLI label + confidence + domain + tier
  * DOTS ONLY — never pills, never background blocks.
  */
 function EvidenceQuote({ evidence }) {
@@ -14,6 +13,12 @@ function EvidenceQuote({ evidence }) {
     ? `${Math.round(evidence.nli_confidence * 100)}%`
     : null;
   const tier = evidence.domain_tier ? `T${evidence.domain_tier}` : null;
+
+  // Safe domain extraction
+  let domain = evidence.domain;
+  if (!domain && evidence.source_url) {
+    try { domain = new URL(evidence.source_url).hostname; } catch { domain = evidence.source_url; }
+  }
 
   return (
     <div className="evidence-quote-block">
@@ -36,7 +41,7 @@ function EvidenceQuote({ evidence }) {
           target="_blank"
           rel="noopener noreferrer"
         >
-          {evidence.domain || new URL(evidence.source_url || 'https://unknown').hostname}
+          {domain || '—'}
         </a>
         {tier && (
           <>
@@ -50,15 +55,12 @@ function EvidenceQuote({ evidence }) {
 }
 
 /**
- * SubClaimAccordion row — dot + text + count + chevron.
- * Expanded: shows evidence as serif italic quotes.
+ * SubClaimAccordion — dot + text + evidence count + chevron arrow.
+ * Expanded: shows matching evidence as serif italic quotes.
  */
 function SubClaimAccordion({ subClaim, evidence, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
-  const cls = verdictClass(subClaim.verdict);
-  const matchingEvidence = evidence?.filter(
-    (e) => e.sub_claim_id === subClaim.id
-  ) || [];
+  const matchingEvidence = evidence?.filter((e) => e.sub_claim_id === subClaim.id) || [];
 
   return (
     <div className="accordion-row">
@@ -104,27 +106,33 @@ function SubClaimAccordion({ subClaim, evidence, defaultOpen = false }) {
 }
 
 /**
- * VerdictHeader — Large serif verdict word + muted metadata + summary paragraph.
- * Then sub-claims as accordion rows.
+ * VerdictHeader — Large serif verdict word + metadata row + summary paragraph.
+ *
+ * Props:
+ *   jobData   — full job object from API / history
+ *   onReaudit — optional callback; when provided, shows the Re-audit button.
+ *               Called with the claim text string.
  */
-export default function VerdictHeader({ jobData }) {
+export default function VerdictHeader({ jobData, onReaudit }) {
   if (!jobData?.result) return null;
 
-  const { result, job_id, latency_ms, token_count } = jobData;
-  const { verdict, confidence, score, explanation, sub_claims, evidence } = result;
+  const { result, latency_ms, token_count, cached } = jobData;
+  const { verdict, confidence, score, explanation, sub_claims, evidence, claim } = result;
 
   const cls = verdictClass(verdict);
   const label = verdictLabel(verdict);
-  const confPct = confidence ? `${Math.round(confidence * 100)}%` : null;
-  const latSec = latency_ms ? `${(latency_ms / 1000).toFixed(1)}s` : null;
+  const confPct = confidence != null ? `${Math.round(confidence * 100)}%` : null;
+  const latSec  = latency_ms   != null ? `${(latency_ms / 1000).toFixed(1)}s` : null;
 
   return (
     <section className="verdict-section" aria-label="Audit result">
-      {/* Verdict word + metadata on same line */}
+
+      {/* ── Verdict word + metadata ── */}
       <div className="verdict-headline-row">
         <h2 className={`verdict-word serif ${cls}`}>
           {label}
         </h2>
+
         <div className="verdict-meta">
           {confPct && (
             <>
@@ -144,18 +152,76 @@ export default function VerdictHeader({ jobData }) {
               <span className="verdict-meta-sep" aria-hidden="true" />
             </>
           )}
-          {token_count && <span>{token_count} tokens</span>}
+          {token_count && (
+            <>
+              <span>{token_count} tokens</span>
+              <span className="verdict-meta-sep" aria-hidden="true" />
+            </>
+          )}
+
+          {/* ── Cached indicator — shown only when cached === true ── */}
+          {cached === true && (
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--text-muted)',
+                border: '1px solid var(--border-mid)',
+                borderRadius: 4,
+                padding: '1px 6px',
+                letterSpacing: '0.03em',
+              }}
+              title="This result was served from the pipeline cache"
+              aria-label="Cached result"
+            >
+              cached
+            </span>
+          )}
         </div>
+
+        {/* ── Re-audit button — only shown when callback provided ── */}
+        {onReaudit && claim && (
+          <button
+            id="reaudit-btn"
+            onClick={() => onReaudit(claim)}
+            aria-label="Re-run audit for this claim"
+            title="Re-run the pipeline with fresh retrieval"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 12,
+              color: 'var(--teal)',
+              border: '1px solid var(--teal)',
+              borderRadius: 6,
+              padding: '4px 10px',
+              marginLeft: 'auto',
+              background: 'none',
+              transition: 'background 0.15s, transform 0.15s',
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--teal-light)';
+              e.currentTarget.style.transform = 'scale(1.03)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'none';
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+          >
+            <RotateCcw size={12} strokeWidth={2} />
+            Re-audit
+          </button>
+        )}
       </div>
 
       <div className="verdict-divider" role="separator" />
 
-      {/* Plain-language summary */}
+      {/* ── Plain-language summary ── */}
       {explanation && (
         <p className="verdict-summary">{explanation}</p>
       )}
 
-      {/* Sub-claims accordion */}
+      {/* ── Sub-claims accordion ── */}
       {sub_claims?.length > 0 && (
         <div className="subclaims-section">
           <p className="section-label">Sub-claims · {sub_claims.length}</p>
