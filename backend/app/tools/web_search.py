@@ -1,8 +1,11 @@
 import asyncio
 import logging
 import os
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional
+
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*duckduckgo_search.*")
 
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -200,9 +203,13 @@ def _sync_ddgs_search(keywords: str, max_res: int) -> List[dict]:
     Synchronous helper for duckduckgo-search with resilient fallbacks
     across text, html, and news methods.
     """
-    from duckduckgo_search import DDGS
-
-    results: List[dict] = []
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*duckduckgo_search.*")
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
 
     # 1. Primary DDGS text search
     try:

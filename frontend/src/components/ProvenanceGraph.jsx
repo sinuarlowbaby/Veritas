@@ -137,7 +137,7 @@ export default function ProvenanceGraph({ result, onSelectNode, selectedNodeId }
             'text-wrap': 'wrap',
             'text-max-width': '190px',
             'color': '#f8fafc',
-            'transition-property': 'background-color, border-color, border-width, box-shadow',
+            'transition-property': 'background-color, border-color, border-width',
             'transition-duration': '0.2s',
           },
         },
@@ -235,7 +235,6 @@ export default function ProvenanceGraph({ result, onSelectNode, selectedNodeId }
             'height': '54px',
             'font-size': '10px',
             'font-weight': '500',
-            'cursor': 'pointer',
           },
         },
         // NLI State Coloring
@@ -293,9 +292,10 @@ export default function ProvenanceGraph({ result, onSelectNode, selectedNodeId }
           style: {
             'border-color': '#ffffff',
             'border-width': '5px',
-            'shadow-blur': 25,
-            'shadow-color': '#38bdf8',
-            'shadow-opacity': 0.8,
+            'underlay-color': '#38bdf8',
+            'underlay-padding': '4px',
+            'underlay-opacity': 0.5,
+            'underlay-shape': 'round-rectangle',
           },
         },
 

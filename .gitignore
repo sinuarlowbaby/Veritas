@@ -29,7 +29,15 @@ Thumbs.db
 
 # Databases & local stores
 *.db
+*.db-*
 *.sqlite
 *.sqlite3
 backend/data/*.db
+backend/data/*.db-*
+
+# Frontend dependencies
+node_modules/
+**/node_modules/
+frontend/dist/
+frontend/.cache/
 
