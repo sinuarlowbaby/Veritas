@@ -9,6 +9,10 @@ import { VerdictDot, verdictClass, verdictLabel, nliClass, nliLabel } from './Ve
 function EvidenceQuote({ evidence }) {
   const cls = nliClass(evidence.nli_label);
   const label = nliLabel(evidence.nli_label);
+  const isRag =
+    evidence.curated === true ||
+    evidence.source_type === 'rag' ||
+    (typeof evidence.source === 'string' && evidence.source.startsWith('curated_rag'));
   const pct = evidence.nli_confidence
     ? `${Math.round(evidence.nli_confidence * 100)}%`
     : null;
@@ -21,7 +25,7 @@ function EvidenceQuote({ evidence }) {
   }
 
   return (
-    <div className="evidence-quote-block">
+    <div className={`evidence-quote-block ${isRag ? 'rag-quote' : ''}`}>
       <p className="evidence-quote-text">
         "{evidence.quote}"
       </p>
@@ -35,6 +39,17 @@ function EvidenceQuote({ evidence }) {
           </>
         )}
         <span className="evidence-meta-sep">—</span>
+        {isRag ? (
+          <span className="source-badge rag" title="Curated fact-check RAG knowledge base">
+            <span className="rag-badge-dot" />
+            Curated RAG
+          </span>
+        ) : (
+          <span className="source-badge web" title="Live web source">
+            Web
+          </span>
+        )}
+        <span className="evidence-meta-sep">·</span>
         <a
           href={evidence.source_url}
           className="evidence-source-link"
@@ -116,7 +131,7 @@ function SubClaimAccordion({ subClaim, evidence, defaultOpen = false }) {
 export default function VerdictHeader({ jobData, onReaudit }) {
   if (!jobData?.result) return null;
 
-  const { result, latency_ms, token_count, cached } = jobData;
+  const { result, latency_ms, token_count, cached, cache_type, similarity } = jobData;
   const { verdict, confidence, score, explanation, sub_claims, evidence, claim } = result;
 
   const cls = verdictClass(verdict);
@@ -159,22 +174,40 @@ export default function VerdictHeader({ jobData, onReaudit }) {
             </>
           )}
 
-          {/* ── Cached indicator — shown only when cached === true ── */}
+          {/* ── Cached indicator (Exact vs Semantic Caching) ── */}
           {cached === true && (
-            <span
-              style={{
-                fontSize: 11,
-                color: 'var(--text-muted)',
-                border: '1px solid var(--border-mid)',
-                borderRadius: 4,
-                padding: '1px 6px',
-                letterSpacing: '0.03em',
-              }}
-              title="This result was served from the pipeline cache"
-              aria-label="Cached result"
-            >
-              cached
-            </span>
+            cache_type === 'semantic' ? (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--rag-color)',
+                  background: 'var(--rag-bg)',
+                  border: '1px solid var(--rag-border)',
+                  borderRadius: 4,
+                  padding: '1px 6px',
+                  letterSpacing: '0.02em',
+                }}
+                title={`Served via Semantic Caching (${similarity ? Math.round(similarity * 100) : 90}% similarity match)`}
+                aria-label="Semantic cache match"
+              >
+                semantic cache {similarity ? `· ${Math.round(similarity * 100)}%` : ''}
+              </span>
+            ) : (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--border-mid)',
+                  borderRadius: 4,
+                  padding: '1px 6px',
+                  letterSpacing: '0.03em',
+                }}
+                title="This result was served from the pipeline exact cache"
+                aria-label="Cached result"
+              >
+                cached
+              </span>
+            )
           )}
         </div>
 

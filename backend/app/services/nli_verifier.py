@@ -139,9 +139,15 @@ class NLIVerifier:
             clean_q = (q or "").strip()
             valid_pairs.append((clean_sc, clean_q))
 
+        # In NLI Cross-Encoders (trained on MNLI/SNLI), input order is (Premise, Hypothesis).
+        # In fact-checking, the Premise is the retrieved Evidence quote (known source text)
+        # and the Hypothesis is the Sub-Claim being verified.
+        # (quote, sub_claim) evaluates: "Given the quote, is the claim supported or refuted?"
+        model_input_pairs = [(q, sc) for sc, q in valid_pairs]
+
         # Batched prediction on local model
         raw_scores = self.model.predict(
-            valid_pairs,
+            model_input_pairs,
             batch_size=batch_size,
             show_progress_bar=False,
         )

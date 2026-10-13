@@ -13,8 +13,24 @@ from app.models.schemas import EvidenceItem, JudgeVerdictResponse, SubClaimVerdi
 def clean_job_store():
     store = get_job_store()
     store.clear()
+    try:
+        from app.database import SessionLocal
+        from app.models.db_models import SemanticCacheORM
+        with SessionLocal() as session:
+            session.query(SemanticCacheORM).delete()
+            session.commit()
+    except Exception:
+        pass
     yield
     store.clear()
+    try:
+        from app.database import SessionLocal
+        from app.models.db_models import SemanticCacheORM
+        with SessionLocal() as session:
+            session.query(SemanticCacheORM).delete()
+            session.commit()
+    except Exception:
+        pass
 
 
 @pytest.fixture

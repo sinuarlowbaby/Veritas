@@ -5,6 +5,7 @@ import './App.css';
 import HistorySidebar from './components/HistorySidebar';
 import TopBar from './components/TopBar';
 import ErrorBanner from './components/ErrorBanner';
+import AuthModal from './components/AuthModal';
 
 // View components
 import ClaimInput from './components/ClaimInput';
@@ -20,12 +21,36 @@ import { classifyError } from './utils/classifyError';
 import { Shield } from 'lucide-react';
 
 const HISTORY_KEY = 'veritas_history';
+const GUEST_HISTORY_KEY = 'veritas_guest_history';
+const TOKEN_KEY = 'veritas_token';
+const USER_KEY = 'veritas_user';
 
 export default function App() {
-  // ─── Real history only — no dummy data ───────────────────────────────────
+  // ─── Authentication state (Multi-device persistence) ─────────────────────
+  const [token, setToken] = useState(() => {
+    try {
+      return localStorage.getItem(TOKEN_KEY) || null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [user, setUser] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem(USER_KEY);
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  // ─── Audit History (Synced with Database for authenticated users) ─────────
   const [history, setHistory] = useState(() => {
     try {
-      const saved = localStorage.getItem(HISTORY_KEY);
+      const activeKey = localStorage.getItem(TOKEN_KEY) ? HISTORY_KEY : GUEST_HISTORY_KEY;
+      const saved = localStorage.getItem(activeKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) return parsed;
@@ -38,7 +63,6 @@ export default function App() {
   const [jobData, setJobData] = useState(null);
 
   // True when the displayed job was loaded from history (not a fresh pipeline run).
-  // Used to show the Re-audit button on VerdictHeader.
   const [isHistoricalJob, setIsHistoricalJob] = useState(false);
 
   // UI state
@@ -46,19 +70,126 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [currentStage, setCurrentStage] = useState('queued');
   const [elapsedTime, setElapsedTime] = useState(0);
-  // error is either null, a plain string, or a { message, hint, retryable } object
   const [error, setError] = useState(null);
   const [lastClaim, setLastClaim] = useState('');
 
   const timerRef = useRef(null);
   const pollRef = useRef(null);
 
-  // Persist history to localStorage
+  // Persist history locally based on authentication state
   useEffect(() => {
     try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 30)));
+      const activeKey = token ? HISTORY_KEY : GUEST_HISTORY_KEY;
+      localStorage.setItem(activeKey, JSON.stringify(history.slice(0, 50)));
     } catch { /* ignore */ }
-  }, [history]);
+  }, [history, token]);
+
+  const handleLogout = () => {
+    setToken(null);
+    setUser(null);
+    setJobData(null);
+    setIsHistoricalJob(false);
+    setActiveView('audit');
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(HISTORY_KEY);
+      // Load clean guest history (or empty if none)
+      const guestSaved = localStorage.getItem(GUEST_HISTORY_KEY);
+      if (guestSaved) {
+        const parsed = JSON.parse(guestSaved);
+        setHistory(Array.isArray(parsed) ? parsed : []);
+      } else {
+        setHistory([]);
+      }
+    } catch {
+      setHistory([]);
+    }
+  };
+
+  // Sync guest tasks performed without login to the user's database account
+  const syncGuestTasksToDb = async (authToken) => {
+    try {
+      const guestSaved = localStorage.getItem(GUEST_HISTORY_KEY);
+      const guestList = guestSaved ? JSON.parse(guestSaved) : [];
+      const guestJobIds = Array.isArray(guestList)
+        ? guestList.map((g) => g.job_id).filter(Boolean)
+        : [];
+
+      if (guestJobIds.length > 0) {
+        // Send guest job_ids to /api/history/sync to link them to the logged-in user in DB
+        const syncRes = await fetch('/api/history/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ job_ids: guestJobIds }),
+        });
+
+        // Clear guest history now that tasks are merged into database account
+        localStorage.removeItem(GUEST_HISTORY_KEY);
+
+        if (syncRes.ok) {
+          const mergedDbJobs = await syncRes.json();
+          if (Array.isArray(mergedDbJobs)) {
+            const formatted = mergedDbJobs.map((h) => ({
+              ...h,
+              _timestamp: h.created_at ? new Date(h.created_at).getTime() : Date.now(),
+            }));
+            setHistory(formatted);
+            return;
+          }
+        }
+      }
+
+      // If no guest tasks or sync failed, fetch regular user history from DB
+      const histRes = await fetch('/api/history', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (histRes.ok) {
+        const dbItems = await histRes.json();
+        if (Array.isArray(dbItems)) {
+          const formatted = dbItems.map((h) => ({
+            ...h,
+            _timestamp: h.created_at ? new Date(h.created_at).getTime() : Date.now(),
+          }));
+          setHistory(formatted);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not sync guest tasks or history:', err);
+    }
+  };
+
+  // Sync / Verify Authentication & Fetch Persistent Database History on mount
+  useEffect(() => {
+    const syncAuthAndHistory = async () => {
+      if (!token) return;
+      try {
+        const meRes = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!meRes.ok) {
+          // Token expired or invalid
+          handleLogout();
+          return;
+        }
+
+        const userData = await meRes.json();
+        setUser(userData);
+        localStorage.setItem(USER_KEY, JSON.stringify(userData));
+
+        // Sync any guest tasks performed prior to login and pull DB history
+        await syncGuestTasksToDb(token);
+      } catch (err) {
+        console.warn('Could not sync user profile:', err);
+      }
+    };
+
+    syncAuthAndHistory();
+  }, [token]);
 
   // Cleanup timers on unmount
   useEffect(() => () => {
@@ -68,12 +199,34 @@ export default function App() {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
+  const handleAuthSuccess = async (newToken, newUser) => {
+    setToken(newToken);
+    setUser(newUser);
+    try {
+      localStorage.setItem(TOKEN_KEY, newToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(newUser));
+      // Migrate guest audits to DB account & load fresh user history
+      await syncGuestTasksToDb(newToken);
+    } catch { /* ignore */ }
+  };
+
   const addToHistory = (data) => {
     const entry = { ...data, _timestamp: Date.now() };
     setHistory((prev) => {
       const deduped = prev.filter((h) => h.job_id !== data.job_id);
-      return [entry, ...deduped].slice(0, 30);
+      return [entry, ...deduped].slice(0, 50);
     });
+
+    // If user is guest (unauthenticated), persist immediately to GUEST_HISTORY_KEY
+    if (!token) {
+      try {
+        const guestSaved = localStorage.getItem(GUEST_HISTORY_KEY);
+        const prevGuest = guestSaved ? JSON.parse(guestSaved) : [];
+        const dedupedGuest = [entry, ...prevGuest.filter((h) => h.job_id !== data.job_id)].slice(0, 50);
+        localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify(dedupedGuest));
+      } catch { /* ignore */ }
+    }
+
     return entry;
   };
 
@@ -85,15 +238,51 @@ export default function App() {
   };
 
   // ─── Select a history item → load it and jump to audit view ──────────────
-  const handleSelectHistory = (item) => {
-    setJobData(item);
-    setIsHistoricalJob(true);  // mark as historical so Re-audit button appears
+  const handleSelectHistory = async (item) => {
+    if (!item) return;
+    setIsHistoricalJob(true);
     setError(null);
     setActiveView('audit');
+
+    // If full result object with verdict is already present, display immediately
+    if (item.result && item.result.verdict) {
+      setJobData(item);
+      return;
+    }
+
+    // If result details are missing (e.g. shallow DB history row), fetch full details
+    if (item.job_id) {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/history/${item.job_id}`);
+        if (res.ok) {
+          const fullData = await res.json();
+          setJobData({
+            ...fullData,
+            cached: item.cached ?? fullData.cached,
+            cache_type: item.cache_type ?? fullData.cache_type,
+            similarity: item.similarity ?? fullData.similarity,
+          });
+        } else {
+          const vRes = await fetch(`/api/verify/${item.job_id}`);
+          if (vRes.ok) {
+            const fullData = await vRes.json();
+            setJobData(fullData);
+          } else {
+            setJobData(item);
+          }
+        }
+      } catch {
+        setJobData(item);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      setJobData(item);
+    }
   };
 
   // ─── Re-audit a historical claim ─────────────────────────────────────────
-  // Triggered by the Re-audit button in VerdictHeader.
   const handleReaudit = (claimText) => {
     handleVerifyClaim(claimText);
   };
@@ -104,7 +293,7 @@ export default function App() {
     setLastClaim(claimText);
     setLoading(true);
     setJobData(null);
-    setIsHistoricalJob(false);  // fresh run — no Re-audit button until completed
+    setIsHistoricalJob(false);
     setCurrentStage('queued');
     setElapsedTime(0);
     setActiveView('audit');
@@ -118,9 +307,15 @@ export default function App() {
     }, 500);
 
     try {
+      // Include Bearer token if user is signed in to link audit to their database account
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch('/api/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ claim: claimText }),
       });
 
@@ -132,7 +327,7 @@ export default function App() {
 
       const initialData = await response.json();
 
-      // Case A: Instant cache hit
+      // Case A: Instant cache hit (Exact or Semantic Caching)
       if (initialData.status === 'completed' && initialData.result) {
         clearInterval(timerRef.current);
         const entry = addToHistory(initialData);
@@ -217,7 +412,6 @@ export default function App() {
               <>
                 <VerdictHeader
                   jobData={jobData}
-                  // Pass onReaudit only for historical jobs so the button appears
                   onReaudit={isHistoricalJob ? handleReaudit : undefined}
                 />
                 <FeedbackRow
@@ -237,7 +431,7 @@ export default function App() {
                 <p className="audit-empty-title">Ready to audit</p>
                 <p className="audit-empty-sub">
                   Enter a headline, quote, or claim above. Our multi-agent pipeline
-                  will find supporting and refuting evidence, then render a verdict.
+                  retrieves curated RAG facts and live web evidence to render a verified verdict.
                 </p>
               </div>
             )}
@@ -272,9 +466,14 @@ export default function App() {
         return (
           <div key="settings" className="view-container centered-col">
             <h2 className="view-title">Settings</h2>
-            <p className="view-subtitle" style={{ marginBottom: 0 }}>
-              Pipeline configuration will appear here in a future release.
+            <p className="view-subtitle" style={{ marginBottom: 16 }}>
+              Database & Pipeline Configuration
             </p>
+            <div style={{ background: 'var(--bg-off)', border: '1px solid var(--border)', borderRadius: 8, padding: 18, fontSize: 13, lineHeight: 1.6 }}>
+              <p><strong>Database:</strong> PostgreSQL (pgvector active) / SQLite persistent fallback</p>
+              <p><strong>Semantic Caching:</strong> Enabled (Cosine similarity threshold: 0.88)</p>
+              <p><strong>Account:</strong> {user ? `Signed in as ${user.username} (${user.email})` : 'Anonymous session (audits stored locally)'}</p>
+            </div>
           </div>
         );
 
@@ -295,16 +494,26 @@ export default function App() {
         onNewAudit={handleNewAudit}
       />
 
-      {/* Thin top bar */}
+      {/* Thin top bar with User Account Login / Sign Out */}
       <TopBar
         jobId={jobData?.job_id}
         pipelineStatus="healthy"
+        user={user}
+        onOpenAuth={() => setAuthModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main scrollable column */}
       <main className="main-content" id="main-content">
         {renderView()}
       </main>
+
+      {/* Authentication Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
 
       {/* Mobile bottom nav */}
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
