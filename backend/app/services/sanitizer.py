@@ -28,6 +28,10 @@ IFCN_FACT_CHECK_DOMAINS = {
     "healthfeedback.org",
     "afp.com",
     "factcheck.afp.com",
+    "newschecker.in",
+    "factly.in",
+    "thip.media",
+    "logically.ai",
 }
 
 OFFICIAL_GOV_DOMAINS = {
@@ -59,6 +63,24 @@ MAINSTREAM_NEWS_DOMAINS = {
     "ndtv.com",
     "hindustantimes.com",
     "timesofindia.indiatimes.com",
+    "indiatimes.com",
+    "theweek.in",
+    "livemint.com",
+    "business-standard.com",
+    "indiatoday.in",
+    "deccanherald.com",
+    "news18.com",
+    "indiatvnews.com",
+    "tribuneindia.com",
+    "telegraphindia.com",
+    "moneycontrol.com",
+    "firstpost.com",
+    "aninews.in",
+    "ptinews.com",
+    "theprint.in",
+    "scroll.in",
+    "thewire.in",
+    "timesnownews.com",
     "theguardian.com",
     "nytimes.com",
     "washingtonpost.com",
@@ -114,8 +136,13 @@ def determine_domain_tier(domain: str, is_curated: bool = False, source: str = "
     if not clean_dom:
         return 4
 
-    # Tier 1 check
-    if clean_dom in IFCN_FACT_CHECK_DOMAINS or any(clean_dom.endswith("." + d) for d in IFCN_FACT_CHECK_DOMAINS):
+    # Tier 1 check (IFCN or dedicated fact-checking portals)
+    if (
+        clean_dom in IFCN_FACT_CHECK_DOMAINS
+        or any(clean_dom.endswith("." + d) for d in IFCN_FACT_CHECK_DOMAINS)
+        or "factcheck" in clean_dom
+        or "fact-check" in clean_dom
+    ):
         return 1
 
     # Tier 2 check (gov, int, mil, official agencies)
@@ -127,10 +154,11 @@ def determine_domain_tier(domain: str, is_curated: bool = False, source: str = "
         or clean_dom.endswith(".int")
         or clean_dom in OFFICIAL_GOV_DOMAINS
         or any(clean_dom.endswith("." + d) for d in OFFICIAL_GOV_DOMAINS)
+        or "pib.gov" in clean_dom
     ):
         return 2
 
-    # Tier 3 check
+    # Tier 3 check (mainstream established news)
     if clean_dom in MAINSTREAM_NEWS_DOMAINS or any(clean_dom.endswith("." + d) for d in MAINSTREAM_NEWS_DOMAINS):
         return 3
 

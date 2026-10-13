@@ -265,3 +265,36 @@ async def test_fastapi_nli_endpoint():
         assert data["results"][0]["nli_confidence"] > 0.90
         assert data["results"][1]["nli_label"] == "SUPPORTS"
         assert data["results"][1]["nli_confidence"] > 0.85
+
+
+# ---------------------------------------------------------------------------
+# Test 7: Journalistic Debunking & Fact-Check Pattern Resolution
+# ---------------------------------------------------------------------------
+def test_debunking_meta_discourse_patterns():
+    """
+    Ensure quotes from fact-checkers reporting on hoaxes, fake letters,
+    or official dismissals are correctly labeled as REFUTES rather than
+    erroneously entailed due to lexical overlap with embedded rumor clauses.
+    """
+    verifier = get_nli_verifier()
+    pairs = [
+        (
+            "Narendra Modi resigned from the position of Prime Minister",
+            "The government has officially dismissed a fake resignation letter circulating online, claiming Prime Minister Narendra Modi has stepped down.",
+        ),
+        (
+            "Narendra Modi resigned from the position of Prime Minister",
+            "The PIB Fact Check has clarified that the viral resignation letter is fake and that PM Modi has not issued such document.",
+        ),
+        (
+            "Finance Ministry eliminated income tax for citizens over 60",
+            "Boom Live fact check found this claim to be completely fake and fabricated.",
+        ),
+    ]
+
+    results = verifier.predict_pairs(pairs)
+    assert len(results) == 3
+    for i, res in enumerate(results):
+        assert res.nli_label == "REFUTES", f"Debunk pair {i+1} failed: got {res.nli_label}"
+        assert res.nli_confidence >= 0.85, f"Debunk pair {i+1} confidence too low: {res.nli_confidence}"
+

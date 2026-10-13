@@ -385,3 +385,38 @@ async def test_fastapi_judge_endpoint():
         assert data["overall_verdict"] == "FALSE"
         assert data["overall_confidence"] >= 0.70
         assert data["is_abstained"] is False
+
+
+def test_calibrated_false_verdict_on_debunked_news():
+    """
+    Verify that when credible refuting evidence is found (e.g. from mainstream news
+    or fact checker), the judge outputs FALSE rather than excessively abstaining to UNVERIFIED.
+    """
+    single_refute_ev = [
+        EvidenceItem(
+            sub_claim_id="sc_modi_1",
+            quote="The government officially dismissed a fake resignation letter, confirming the Prime Minister did not step down.",
+            source_url="https://theweek.in/news",
+            domain="theweek.in",
+            domain_tier=3,
+            nli_label="REFUTES",
+            nli_confidence=0.92,
+        )
+    ]
+    # score = -0.50 * 0.92 = -0.46 <= FALSE_THRESHOLD (-0.30)
+    verdict = determine_sub_claim_verdict(
+        "sc_modi_1",
+        "Narendra Modi resigned from the position of Prime Minister",
+        single_refute_ev,
+    )
+    assert verdict.verdict == "FALSE"
+    assert verdict.confidence >= 0.60
+
+    # Composite claim with this FALSE subclaim must produce overall FALSE
+    overall_v, overall_c, _, is_abst = aggregate_verdicts(
+        "Narendra Modi resigned from the position of Prime Minister",
+        [verdict],
+    )
+    assert overall_v == "FALSE"
+    assert is_abst is False
+

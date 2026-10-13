@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import re
 import scipy.special
 
 # Load environment variables
@@ -44,6 +45,42 @@ ID_TO_LABEL_MAP = {
     1: "SUPPORTS",   # entailment
     2: "NEUTRAL",    # neutral
 }
+
+# Explicit debunking and fact-checking phrases that denote contradiction/falsification
+# of an affirmative claim in journalistic evidence
+DEBUNK_QUOTE_PATTERNS = [
+    r'\b(?:fake|fabricated|doctored|morphed)\b\s+(?:resignation|letter|claim|news|notice|order|circular|document|video|image|photo|notification|post|tweet|quote)',
+    r'\b(?:false|fake|misleading|fabricated|unfounded|baseless)\s+(?:claim|rumor|letter|post|news|report|story)\b',
+    r'\b(?:claim|letter|rumor|post|story|news|notification|order)\s+(?:is|was|are|were|has been)\s+(?:found\s+to\s+be\s+)?(?:completely\s+|entirely\s+)?(?:false|fake|untrue|baseless|misleading|fabricated|a hoax)\b',
+    r'\b(?:found|confirmed|declared|labeled|rated|called|flagged)\b.*?\b(?:claim|post|letter|video|story|rumor)\b.*?\b(?:false|fake|misleading|fabricated|untrue|a hoax)\b',
+    r'\b(?:dismissed|denied|rejected|refuted|busted|debunked|debunks|debunking)\b.*?\b(?:fake|false|rumor|claim|letter|report|allegation|post|story)\b',
+    r'\bclarified that\b.*?\b(?:is fake|is false|has not|did not|never|no such)\b',
+    r'\b(?:fact\s*check|fact-check|pib\s*fact\s*check)\b.*?\b(?:fake|false|misleading|debunk|hoax|untrue|no\b)',
+    r'\b(?:no truth\b|baseless\b|unfounded\b|\bhoax\b|\bmyth\b|\bmisinformation\b)',
+    r'\b(?:has not|have not|did not)\s+(?:issued|announced|resigned|stepped down|signed|passed|implemented)\b',
+    r'\bno such\s+(?:order|announcement|letter|circular|policy|decision|statement)\b',
+]
+DEBUNK_RE = re.compile('|'.join(DEBUNK_QUOTE_PATTERNS), re.IGNORECASE)
+
+SUBCLAIM_NEG_PATTERNS = [
+    r'\b(?:does not|did not|has not|is not|was not|never|fake|false|hoax|untrue)\b'
+]
+SUBCLAIM_NEG_RE = re.compile('|'.join(SUBCLAIM_NEG_PATTERNS), re.IGNORECASE)
+
+
+def is_quote_debunking_claim(quote: str, sub_claim: str) -> bool:
+    """
+    Detects if a retrieved journalistic quote contains explicit debunking language
+    targeting an affirmative sub-claim. Standard Cross-Encoders trained on MNLI
+    suffer from a meta-discourse blindspot when quotes contain phrases like
+    'dismissed a fake resignation letter claiming X' or 'PIB clarified that X is fake',
+    misclassifying them as SUPPORTS due to lexical overlap with the embedded clause.
+    """
+    if not quote or not sub_claim:
+        return False
+    # If quote has clear debunking markers and sub-claim is affirmative (does not itself assert a negation)
+    return bool(DEBUNK_RE.search(quote)) and not bool(SUBCLAIM_NEG_RE.search(sub_claim))
+
 
 
 class NLIVerifier:
@@ -166,6 +203,22 @@ class NLIVerifier:
             best_idx = int(probs.argmax())
             winning_label = ID_TO_LABEL_MAP[best_idx]
             winning_confidence = float(probs[best_idx])
+
+            # Apply debunking override if journalistic quote directly debunks affirmative claim
+            if is_quote_debunking_claim(q, sc) and winning_label != "REFUTES":
+                logger.info(
+                    f"Debunk override: quote contains explicit refutation/debunk signals for sub-claim '{sc[:45]}...'. "
+                    f"Overriding raw NLI label '{winning_label}' to 'REFUTES'."
+                )
+                winning_label = "REFUTES"
+                # Calibrate confidence based on original strength or at least 0.88
+                winning_confidence = max(0.88, round(winning_confidence, 4))
+                rem = round(1.0 - winning_confidence, 4)
+                scores_dict = {
+                    "REFUTES": winning_confidence,
+                    "SUPPORTS": round(rem * 0.3, 4),
+                    "NEUTRAL": round(rem * 0.7, 4),
+                }
 
             results.append(
                 NLIPairResult(

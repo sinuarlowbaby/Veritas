@@ -67,11 +67,11 @@ RECENCY_DECAY_3_YEARS = 0.70       # > 3 years old: 70% weight
 RECENCY_DECAY_UNDATED = 1.00       # Undated source: 100% weight (no arbitrary penalty if unlisted)
 
 # Part 2 Decision Threshold Constants
-TRUE_THRESHOLD = 0.50
-FALSE_THRESHOLD = -0.50
-ABSTENTION_SCORE_THRESHOLD = 0.35
-MIN_EVIDENCE_COUNT = 2
-HIGH_CONFIDENCE_THRESHOLD = 0.70
+TRUE_THRESHOLD = 0.45             # Calibrated positive threshold
+FALSE_THRESHOLD = -0.30            # Calibrated refute threshold: allows credible counter-evidence to refute
+ABSTENTION_SCORE_THRESHOLD = 0.20 # Calibrated abstention threshold: reduces excessive UNVERIFIED on real claims
+MIN_EVIDENCE_COUNT = 1            # Single authoritative debunk or confirmation can decide
+HIGH_CONFIDENCE_THRESHOLD = 0.60  # Calibrated high-confidence threshold
 
 
 def calculate_recency_decay(
@@ -172,23 +172,33 @@ def determine_sub_claim_verdict(
     neu_items = [e for e in evidence_items if (e.nli_label or "").upper() == "NEUTRAL"]
     active_evidence_count = len(supp_items) + len(ref_items)
 
-    # Abstention check: if no active evidence or thin evidence under abstention threshold
-    if active_evidence_count == 0 or (
-        abs(score) < ABSTENTION_SCORE_THRESHOLD and active_evidence_count < MIN_EVIDENCE_COUNT
-    ):
+    # 1. Total lack of active evidence -> Abstention
+    if active_evidence_count == 0:
         verdict = "UNVERIFIED"
-    elif score >= TRUE_THRESHOLD:
-        verdict = "TRUE"
+    # 2. Score decisively refutes the claim
     elif score <= FALSE_THRESHOLD:
         verdict = "FALSE"
+    # 3. Score decisively supports the claim
+    elif score >= TRUE_THRESHOLD:
+        verdict = "TRUE"
+    # 4. Intermediate zone (between FALSE_THRESHOLD and TRUE_THRESHOLD)
     else:
-        # Score falls in intermediate zone [-0.50, 0.50]
-        if supp_items and ref_items:
-            verdict = "PARTIALLY TRUE"
-        elif abs(score) >= ABSTENTION_SCORE_THRESHOLD:
-            verdict = "TRUE" if score > 0 else "FALSE"
+        # Score magnitude is negligible (< ABSTENTION_SCORE_THRESHOLD)
+        if abs(score) < ABSTENTION_SCORE_THRESHOLD:
+            # If both sides presented evidence, it's genuine controversy / mixed
+            if supp_items and ref_items:
+                verdict = "PARTIALLY TRUE"
+            else:
+                # Thin evidence on a single side with negligible score -> Abstain
+                verdict = "UNVERIFIED"
+        # Score is negative and refuting evidence outweighs or equals supporting
+        elif score < 0 and len(ref_items) >= len(supp_items):
+            verdict = "FALSE"
+        # Score is positive and supporting evidence outweighs refuting
+        elif score > 0 and len(supp_items) >= len(ref_items):
+            verdict = "TRUE" if len(ref_items) == 0 else "PARTIALLY TRUE"
         else:
-            verdict = "UNVERIFIED"
+            verdict = "PARTIALLY TRUE" if (supp_items and ref_items) else "UNVERIFIED"
 
     confidence = calibrate_confidence(score, active_evidence_count, verdict)
 
@@ -242,6 +252,11 @@ def aggregate_verdicts(
     high_conf_false = [f for f in false_verdicts if f.confidence >= HIGH_CONFIDENCE_THRESHOLD]
     if high_conf_false or len(false_verdicts) > len(true_verdicts):
         conf = max((f.confidence for f in false_verdicts), default=0.75)
+        return ("FALSE", conf, round(avg_score, 4), False)
+
+    # Rule 1b: If any sub-claim is False and overall average score is negative
+    if false_verdicts and avg_score <= -0.15:
+        conf = max((f.confidence for f in false_verdicts), default=0.70)
         return ("FALSE", conf, round(avg_score, 4), False)
 
     # Rule 2: Complete absence of verifiable evidence -> Abstention
