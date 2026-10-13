@@ -34,16 +34,21 @@ export default function HistoryView({ history, onSelect }) {
 
       <div className="history-list" role="list">
         {history.map((item, i) => {
-          const cls = verdictClass(item.result?.verdict);
-          const label = verdictLabel(item.result?.verdict).replace('.', '');
-          const claim = item.result?.claim || 'Unknown claim';
+          if (!item) return null;
+          const verdict = item.result?.verdict || item.verdict;
+          const cls = verdictClass(verdict);
+          const label = verdictLabel(verdict).replace('.', '');
+          const claim = item.result?.claim || item.claim || 'Unknown claim';
           const ts = item._timestamp
             ? new Date(item._timestamp).toLocaleDateString('en-IN', {
                 day: 'numeric', month: 'short', year: 'numeric',
               })
             : null;
           const evidenceCount = item.result?.evidence?.length ?? 0;
-          const latency = item.latency_ms ? `${(item.latency_ms / 1000).toFixed(1)}s` : null;
+          const isCached = item.cached === true;
+          const latency = isCached
+            ? (item.cache_type === 'semantic' ? 'semantic cache' : 'cached')
+            : (item.latency_ms ? `${(item.latency_ms / 1000).toFixed(1)}s` : null);
 
           return (
             <button
@@ -55,7 +60,7 @@ export default function HistoryView({ history, onSelect }) {
               style={{ width: '100%' }}
             >
               {/* Colored dot */}
-              <VerdictDot verdict={item.result?.verdict} size={7} />
+              <VerdictDot verdict={verdict} size={7} />
 
               {/* Claim + meta */}
               <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>

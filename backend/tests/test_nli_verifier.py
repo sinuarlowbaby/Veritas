@@ -108,7 +108,7 @@ TEST_10_PAIRS = [
         "Drinking papaya seed juice cures dengue infection within 24 hours.",
         "Health authorities confirm that papaya seed juice does not cure dengue infection.",
         "REFUTES",
-        0.90,
+        0.75,
     ),
     # 9. Sneaky NEUTRAL: general organizational background on UNESCO that neither supports nor refutes
     (

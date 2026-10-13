@@ -18,9 +18,10 @@ export default function HistorySidebar({
   const [search, setSearch] = useState('');
 
   const filtered = history.filter((item) => {
+    if (!item) return false;
     if (!search.trim()) return true;
-    const claim = (item.result?.claim || '').toLowerCase();
-    const verdict = (item.result?.verdict || '').toLowerCase();
+    const claim = (item.result?.claim || item.claim || '').toLowerCase();
+    const verdict = (item.result?.verdict || item.verdict || '').toLowerCase();
     return claim.includes(search.toLowerCase()) || verdict.includes(search.toLowerCase());
   });
 
@@ -222,8 +223,8 @@ function HistoryGroup({ label, items, activeJobId, onSelect }) {
  * HistoryItem — dot + truncated claim + verdict word (muted, right)
  */
 function HistoryItem({ item, isActive, onSelect }) {
-  const verdict = item.result?.verdict;
-  const claim = item.result?.claim || 'Unknown claim';
+  const verdict = item.result?.verdict || item.verdict;
+  const claim = item.result?.claim || item.claim || 'Unknown claim';
   const cls = verdictClass(verdict);
   const label = verdictLabel(verdict).replace('.', '');
 

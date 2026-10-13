@@ -18,6 +18,15 @@
   --teal-light:  #e6f4f3;
   --teal-focus:  rgba(15, 118, 110, 0.15);
 
+  /* RAG & Source accents */
+  --rag-color:       #6366f1;
+  --rag-color-hover: #4f46e5;
+  --rag-bg:          rgba(99, 102, 241, 0.08);
+  --rag-border:      rgba(99, 102, 241, 0.28);
+  --web-color:       #0f766e;
+  --web-bg:          rgba(15, 118, 110, 0.06);
+  --web-border:      rgba(15, 118, 110, 0.2);
+
   /* Typography */
   --text-primary:   #1c1917;
   --text-secondary: #57534e;
@@ -1044,3 +1053,260 @@ input, textarea {
 }
 
 .mobile-nav-btn.active { color: var(--teal); }
+
+/* ============================================
+   RAG VS WEB SOURCE BADGES & STYLING
+   ============================================ */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+  transition: all 0.15s ease;
+  line-height: 1.5;
+}
+
+.source-badge.rag {
+  color: var(--rag-color);
+  background: var(--rag-bg);
+  border: 1px solid var(--rag-border);
+}
+
+.source-badge.rag .rag-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--rag-color);
+  flex-shrink: 0;
+}
+
+.source-badge.web {
+  color: var(--text-secondary);
+  background: var(--bg-off);
+  border: 1px solid var(--border);
+}
+
+/* Quote card with subtle RAG accent */
+.evidence-quote-block.rag-quote {
+  border-left-color: var(--rag-color);
+  background: rgba(99, 102, 241, 0.02);
+}
+
+.evidence-quote-block.rag-quote:hover {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+/* ============================================
+   AUTHENTICATION MODAL & TOPBAR
+   ============================================ */
+.auth-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 25, 23, 0.4);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.auth-modal {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 400px;
+  padding: 28px 24px;
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.12);
+  position: relative;
+}
+
+.auth-modal-header {
+  margin-bottom: 20px;
+}
+
+.auth-modal-title {
+  font-family: 'Lora', Georgia, serif;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.auth-modal-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.auth-modal-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+  gap: 16px;
+}
+
+.auth-tab-btn {
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.auth-tab-btn.active {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.auth-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.auth-input {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: 'Inter', sans-serif;
+  color: var(--text-primary);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.auth-input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px var(--teal-focus);
+}
+
+.auth-error {
+  font-size: 12px;
+  color: var(--dot-false);
+  background: rgba(220, 38, 38, 0.06);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(220, 38, 38, 0.2);
+}
+
+.auth-submit-btn {
+  margin-top: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--white);
+  background: var(--teal);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.auth-submit-btn:hover:not(:disabled) {
+  background: #0d655e;
+}
+
+.auth-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-close-btn {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.auth-close-btn:hover {
+  color: var(--text-primary);
+}
+
+/* TopBar auth elements */
+.topbar-auth {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.topbar-sign-in-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--teal);
+  background: var(--teal-light);
+  border: 1px solid rgba(15, 118, 110, 0.25);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.topbar-sign-in-btn:hover {
+  background: rgba(15, 118, 110, 0.12);
+}
+
+.topbar-user-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.topbar-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--teal);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.topbar-sign-out-btn {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.topbar-sign-out-btn:hover {
+  color: var(--dot-false);
+}

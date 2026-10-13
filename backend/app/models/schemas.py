@@ -266,6 +266,10 @@ class EvidenceItem(BaseModel):
         default=False,
         description="True if retrieved from curated fact-check vector store.",
     )
+    source_type: str = Field(
+        default="web",
+        description="'rag' if retrieved from curated fact-check vector store, else 'web'.",
+    )
     nli_label: Optional[str] = Field(
         default=None,
         description="Deterministic NLI label: 'SUPPORTS', 'REFUTES', or 'NEUTRAL'.",
@@ -370,6 +374,7 @@ class JudgeVerdictResponse(BaseModel):
                     "nli_confidence": ev.nli_confidence,
                     "retrieved_by": ev.retrieved_by,
                     "curated": ev.curated,
+                    "source_type": "rag" if ev.curated else "web",
                 }
                 for ev in self.evidence
             ],
@@ -433,6 +438,14 @@ class VerificationJobResponse(BaseModel):
     cached: bool = Field(
         default=False,
         description="True if response was served from cache in milliseconds.",
+    )
+    cache_type: Optional[str] = Field(
+        default=None,
+        description="'exact' or 'semantic' when served from cache.",
+    )
+    similarity: Optional[float] = Field(
+        default=None,
+        description="Cosine similarity score for semantic cache hits.",
     )
     result: Optional[Union[Dict[str, Any], JudgeVerdictResponse]] = Field(
         default=None,
